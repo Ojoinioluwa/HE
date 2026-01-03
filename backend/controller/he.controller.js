@@ -16,11 +16,11 @@ const { loadContext, deserialize, serialize } = heConfig
 
 const initializeHE = async (req, res) => {
     try {
-        console.log(req.body)
+
         const { scheme, params, publicKeyBase64, evaluationKeysBase64 } = req.body;
 
         // TODO: make the changes
-        const userId = req.user._id.toString() || "i2bwkjesdjidozxii1i03912354";
+        const userId = req.user._id.toString();
 
         // 1. Load the SEAL Context on the Server using the imported helper
         loadContext(params);
@@ -48,6 +48,35 @@ const initializeHE = async (req, res) => {
     }
 };
 
+
+/**
+ * GET /api/data/my-uploads
+ * Fetches all encrypted data entries belonging to the logged-in user.
+ */
+const getUserCiphertexts = async (req, res) => {
+    try {
+        // req.user._id is populated by your Auth Middleware
+        const userId = req.user._id;
+
+        // Find all records matching the user ID, sorted by most recent first
+        const uploads = await CiphertextModel.find({ userId })
+            .sort({ createdAt: -1 })
+            .select('-__v -ciphertextBase64'); // Exclude the version key
+
+        res.status(200).json({
+            count: uploads.length,
+            uploads
+        });
+
+    } catch (error) {
+        console.error('Error fetching user ciphertexts:', error);
+        res.status(500).json({
+            error: 'Failed to retrieve your data.',
+            details: error.message
+        });
+    }
+};
+
 /**
  * POST /api/v1/he/data/upload
  * Uploads an encrypted ciphertext vector to the server for storage.
@@ -56,9 +85,11 @@ const uploadCiphertext = async (req, res) => {
     try {
         const { dataId, ciphertextBase64, scheme, metadata } = req.body;
         const userId = req.user._id.toString();
+
         if (!userId || !dataId || !ciphertextBase64 || !scheme) {
             return res.status(400).json({ error: "Missing required fields." });
         }
+
 
         const newCiphertext = await CiphertextModel.create({
             userId,
@@ -76,6 +107,32 @@ const uploadCiphertext = async (req, res) => {
     } catch (error) {
         console.error('Ciphertext upload error:', error);
         res.status(500).json({ error: 'Failed to upload ciphertext.', details: error.message });
+    }
+};
+
+
+
+/**
+ * GET /api/data/:id
+ * Fetches a single ciphertext record by its MongoDB _id or custom dataId
+ */
+export const getCiphertextById = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user._id;
+
+        // Find by _id AND ensure it belongs to the requesting user
+        const ciphertext = await CiphertextModel.findOne({ _id: id, userId });
+
+
+        if (!ciphertext) {
+            return res.status(404).json({ error: "Ciphertext not found or access denied." });
+        }
+
+        res.status(200).json(ciphertext);
+    } catch (error) {
+        console.error('Error fetching specific ciphertext:', error);
+        res.status(500).json({ error: 'Failed to retrieve record.', details: error.message });
     }
 };
 
@@ -402,6 +459,8 @@ const heController = {
     computeMultiply,
     computeSum,
     initializeHE,
-    uploadCiphertext
+    uploadCiphertext,
+    getUserCiphertexts,
+    getCiphertextById
 }
 export default heController

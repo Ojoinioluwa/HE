@@ -1,112 +1,266 @@
-// src/components/LoginPage.tsx
-
 import React, { useState } from "react";
+import {
+  Container,
+  Box,
+  Paper,
+  Typography,
+  TextField,
+  Button,
+  Divider,
+  InputAdornment,
+  IconButton,
+} from "@mui/material";
+import { Visibility, VisibilityOff } from "@mui/icons-material";
+import { FaGithub } from "react-icons/fa";
+import { FcGoogle } from "react-icons/fc";
+import { useNavigate } from "react-router-dom";
+import { useFormik } from "formik";
+import * as Yup from "yup";
 import { useMutation } from "@tanstack/react-query";
-import { loginUser } from "../API/auth.ts";
+import { useDispatch } from "react-redux";
+import toast, { Toaster } from "react-hot-toast";
+import { LoginAPI, UpdateHEKeysAPI } from "../API/userServices";
+import { setAuth, setSecretKey } from "../redux/slice/authSlice";
+import type { LoginResponse } from "../types/userType";
+import {
+  createAndWrapKeys,
+  unwrapAndLoadKeys,
+  initializeSEALClient,
+} from "../utils/heClient";
 
-interface LoginPageProps {
-  onLoginSuccess: (token: string) => void;
-  onSwitchToRegister: () => void;
-}
+// --- Validation Schema ---
+const validationSchema = Yup.object({
+  email: Yup.string()
+    .email("Invalid email")
+    .required("Email Field is required"),
+  password: Yup.string()
+    .required("Password Field is required")
+    .min(8, "Password should not be less than 8 characters"),
+});
 
-const LoginPage: React.FC<LoginPageProps> = ({
-  onLoginSuccess,
-  onSwitchToRegister,
-}) => {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+const LoginPage: React.FC = () => {
+  const dispatch = useDispatch();
+  const navigate = useNavigate();
+  const [showPassword, setShowPassword] = useState(false);
+  const [isHeProcessing, setIsHeProcessing] = useState(false);
 
-  const loginMutation = useMutation({
-    mutationFn: loginUser,
-    onSuccess: (data) => {
-      // Upon successful API call, execute the success callback
-      onLoginSuccess(data.token);
+  // --- TanStack Query Mutations ---
+  const { mutateAsync: loginMutate, isPending: loginPending } = useMutation({
+    mutationKey: ["Login"],
+    mutationFn: LoginAPI,
+  });
+
+  const { mutateAsync: heKeysMutate } = useMutation({
+    mutationKey: ["HEKeys"],
+    mutationFn: UpdateHEKeysAPI,
+  });
+
+  const formik = useFormik({
+    initialValues: {
+      email: "",
+      password: "",
     },
-    onError: (error: Error) => {
-      // Error handled by the mutation state
-      console.error("Login Error:", error.message);
+    validationSchema,
+    onSubmit: async (values) => {
+      try {
+        // 1. Perform API Login
+        const data: LoginResponse = await loginMutate(values);
+
+        // Initial Auth State Update
+        dispatch(setAuth({ token: data.token }));
+        localStorage.setItem(
+          "userInfo",
+          JSON.stringify({
+            token: data.token,
+            email: data.user.email,
+            firstName: data.user.firstName,
+          })
+        );
+
+        // 2. Start HE Engine
+        setIsHeProcessing(true);
+        await initializeSEALClient();
+
+        let finalSecretKeyBase64 = "";
+
+        // 3. Logic: Check for the wrapped key in the backend response
+        if (data.user.heConfig?.wrappedSecretKey) {
+          // Returning User: Decrypt the existing key
+          finalSecretKeyBase64 = await unwrapAndLoadKeys(
+            data.user.heConfig.wrappedSecretKey,
+            values.password,
+            values.email
+          );
+        } else {
+          // First Time User: Generate new keys
+          const { keysAndParams, wrappedSecretKey } = await createAndWrapKeys(
+            values.password,
+            values.email
+          );
+
+          // MAPPING: Ensure field names match your MongoDB schema exactly
+          const payloadForBackend = {
+            publicKey: keysAndParams.publicKeyBase64, // Map to publicKey
+            evaluationKey: keysAndParams.evaluationKeysBase64, // Map to evaluationKey
+            wrappedSecretKey: wrappedSecretKey,
+            params: keysAndParams.params,
+            isInitialized: true,
+            scheme: keysAndParams.scheme,
+          };
+
+          // Send to backend
+          await heKeysMutate(payloadForBackend);
+
+          // Unwrap the newly created key for immediate use
+          finalSecretKeyBase64 = await unwrapAndLoadKeys(
+            wrappedSecretKey,
+            values.password,
+            values.email
+          );
+        }
+
+        // 4. Finalize session
+        dispatch(setSecretKey(finalSecretKeyBase64));
+        localStorage.setItem("heSecretKey", finalSecretKeyBase64);
+
+        toast.success("Secure Session Established!");
+        formik.resetForm();
+        navigate("/dashboard");
+      } catch (err: any) {
+        console.error("Login/HE Error:", err);
+        toast.error(
+          err.response?.data?.message ||
+            "Secure Login failed. Verify credentials."
+        );
+      } finally {
+        setIsHeProcessing(false);
+      }
     },
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    // Trigger the mutation
-    loginMutation.mutate({ email, password });
-  };
-
   return (
-    // Responsive Container: Centered, full height, light blue background
-    <div className="flex justify-center items-center min-h-screen bg-blue-50 p-4 sm:p-6">
-      <div className="w-full max-w-md p-6 bg-white rounded-xl shadow-2xl border border-gray-100">
-        <h1 className="text-3xl font-bold text-center text-blue-600 mb-8">
-          HE Client Login 👋
-        </h1>
+    <Container maxWidth="xs">
+      <Toaster position="top-center" />
+      <Box
+        sx={{
+          marginTop: 8,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+        }}
+      >
+        <Paper
+          elevation={3}
+          sx={{ padding: 4, width: "100%", borderRadius: 2 }}
+        >
+          <Typography
+            component="h1"
+            variant="h5"
+            sx={{ mb: 3, fontWeight: "bold", textAlign: "center" }}
+          >
+            Sign In
+          </Typography>
 
-        {loginMutation.isError && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4 text-sm">
-            {loginMutation.error.message}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label
-              htmlFor="email"
-              className="block text-sm font-medium text-gray-700 mb-1"
-            >
-              Email
-            </label>
-            <input
-              type="email"
+          <Box
+            component="form"
+            onSubmit={formik.handleSubmit}
+            noValidate
+            sx={{ mt: 1 }}
+          >
+            <TextField
+              margin="normal"
+              fullWidth
               id="email"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-150"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
+              label="Email Address"
+              {...formik.getFieldProps("email")}
+              error={formik.touched.email && Boolean(formik.errors.email)}
+              helperText={formik.touched.email && formik.errors.email}
+              autoComplete="email"
+              autoFocus
             />
-          </div>
 
-          <div>
-            <label
-              htmlFor="password"
-              className="block text-sm font-medium text-gray-700 mb-1"
-            >
-              Password
-            </label>
-            <input
-              type="password"
+            <TextField
+              margin="normal"
+              fullWidth
+              label="Password"
+              type={showPassword ? "text" : "password"}
               id="password"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-150"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
+              {...formik.getFieldProps("password")}
+              error={formik.touched.password && Boolean(formik.errors.password)}
+              helperText={formik.touched.password && formik.errors.password}
+              autoComplete="current-password"
+              InputProps={{
+                endAdornment: (
+                  <InputAdornment position="end">
+                    <IconButton
+                      onClick={() => setShowPassword(!showPassword)}
+                      edge="end"
+                    >
+                      {showPassword ? <VisibilityOff /> : <Visibility />}
+                    </IconButton>
+                  </InputAdornment>
+                ),
+              }}
             />
-          </div>
 
-          <button
-            type="submit"
-            className={`w-full py-3 px-4 rounded-lg text-white font-semibold transition duration-200 ${
-              loginMutation.isPending
-                ? "bg-blue-400 cursor-not-allowed"
-                : "bg-blue-600 hover:bg-blue-700"
-            }`}
-            disabled={loginMutation.isPending}
-          >
-            {loginMutation.isPending ? "Logging in..." : "Login"}
-          </button>
-        </form>
+            <Button
+              type="submit"
+              fullWidth
+              variant="contained"
+              disabled={loginPending || isHeProcessing}
+              sx={{ mt: 3, mb: 2, py: 1.5, fontWeight: "bold" }}
+            >
+              {loginPending
+                ? "Checking Account..."
+                : isHeProcessing
+                ? "Decrypting Secure Session..."
+                : "Sign In"}
+            </Button>
 
-        <p className="mt-6 text-center text-sm text-gray-600">
-          Don't have an account?{" "}
-          <span
-            className="text-blue-600 hover:text-blue-700 font-medium cursor-pointer transition duration-150"
-            onClick={onSwitchToRegister}
-          >
-            Register here
-          </span>
-        </p>
-      </div>
-    </div>
+            <Box sx={{ textAlign: "center", mb: 2 }}>
+              <Typography variant="body2">
+                Don't have an account?{" "}
+                <Button
+                  onClick={() => navigate("/register")}
+                  sx={{ textTransform: "none", fontWeight: "bold" }}
+                >
+                  Sign Up
+                </Button>
+              </Typography>
+            </Box>
+
+            <Divider sx={{ my: 2 }}>OR</Divider>
+
+            <Box sx={{ display: "flex", gap: 2 }}>
+              <Button
+                fullWidth
+                variant="outlined"
+                startIcon={<FcGoogle />}
+                sx={{
+                  textTransform: "none",
+                  color: "#555",
+                  borderColor: "#ccc",
+                }}
+              >
+                Google
+              </Button>
+              <Button
+                fullWidth
+                variant="outlined"
+                startIcon={<FaGithub style={{ color: "#333" }} />}
+                sx={{
+                  textTransform: "none",
+                  color: "#555",
+                  borderColor: "#ccc",
+                }}
+              >
+                GitHub
+              </Button>
+            </Box>
+          </Box>
+        </Paper>
+      </Box>
+    </Container>
   );
 };
 

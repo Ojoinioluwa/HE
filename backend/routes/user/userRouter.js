@@ -16,8 +16,13 @@ userRouter.post("/auth/forgot-password", userController.forgotPassword);
 userRouter.post("/auth/reset-password", userController.resetPassword);
 userRouter.put("/auth/change-password", isAuthenticated, userController.changePassword);
 
+
+
 // Profile
 userRouter.get("/profile", isAuthenticated, userController.getUserProfile);
 userRouter.put("/profile", isAuthenticated, userController.updateProfile);
+
+userRouter.post('/update-he-keys', isAuthenticated, userController.updateHEKeys);
+
 
 export default userRouter;

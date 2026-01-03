@@ -3,11 +3,24 @@ export type User = {
     lastName: string;
     email: string;
     password: string;
+    heConfig: HEConfig;
     phoneNumber: string;
 }
 
+export interface HEConfig {
+    publicKey: string | null;      // Base64 encoded string
+    evaluationKey: string | null;  // Base64 encoded Relin Keys
+    wrappedSecretKey?: string;     // The AES-encrypted secret key string
+    params: {
+        polyModulusDegree: number;
+        scale: number;
+        scheme: "ckks" | "bfv" | "bgv";
+    };
+    isInitialized: boolean;
+}
+
 export type RegisterForm = User & {
-  confirmPassword: string;
+    confirmPassword: string;
 };
 
 export type LocalSorageInfo = {
@@ -28,7 +41,7 @@ export type LoginResponse = {
 }
 
 export type RegisterResponse = {
-    status: string; 
+    status: string;
     message: string;
 }
 

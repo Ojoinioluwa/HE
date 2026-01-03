@@ -1,280 +1,303 @@
-// src/components/DataUploadPage.tsx (Modified to support Image Upload)
-
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { useAppDispatch } from "../redux/slice/hook.ts"; // Assuming you use Redux
-import { setSecretKey } from "../redux/slice/authSlice"; // To save the secret key
+import { useSelector } from "react-redux";
+import type { RootState } from "../redux/store";
 import {
   initializeSEALClient,
-  generateHEInitPayload,
   encryptData,
+  initializeEncryptorFromKey,
 } from "../utils/heClient";
-import { initializeHEContext, uploadCiphertext } from "../API/he.ts";
-import { imageFileToNormalizedVector } from "../utils/imageProcessing"; // <-- NEW IMPORT
+import { uploadCiphertext } from "../API/he";
+import type { UploadPayload } from "../API/he";
+import { imageFileToNormalizedVector } from "../utils/imageProcessing";
+import { toast, Toaster } from "react-hot-toast";
 
-interface DataUploadPageProps {
-  token: string;
-}
+const IMAGE_HE_SIZE = 36;
 
-const IMAGE_HE_SIZE = 32; // Forces image to 32x32 pixels (3072 vector size, safe for 4096 slots)
-
-const DataUploadPage: React.FC<DataUploadPageProps> = ({ token }) => {
-  const dispatch = useAppDispatch();
+const DataUploadPage: React.FC = () => {
+  const { secretKeyBase64 } = useSelector((state: RootState) => state.auth);
 
   // Form State
   const [dataType, setDataType] = useState<"text" | "image">("text");
   const [rawData, setRawData] = useState("");
-  const [imageFile, setImageFile] = useState<File | null>(null); // NEW STATE
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [dataId, setDataId] = useState("");
+  const [isReady, setIsReady] = useState(false);
 
-  // ... (initMutation remains the same, but update onSuccess to dispatch secret key) ...
-  const initMutation = useMutation({
-    mutationFn: async () => {
-      await initializeSEALClient();
-      const { keysAndParams, secretKeyBase64 } = generateHEInitPayload();
-      console.log(keysAndParams);
+  // 1. Sync Encryption Engine
+  useEffect(() => {
+    const setup = async () => {
+      try {
+        await initializeSEALClient();
+        if (secretKeyBase64) {
+          await initializeEncryptorFromKey(secretKeyBase64);
+          setIsReady(true);
+        }
+      } catch (err) {
+        console.error(err);
+        toast.error("Failed to initialize encryption engine.");
+      }
+    };
+    setup();
+  }, [secretKeyBase64]);
 
-      // 3. Dispatch Secret Key to Redux store (CRITICAL)
-      dispatch(setSecretKey(secretKeyBase64));
+  // 2. Image Preview Effect
+  useEffect(() => {
+    if (!imageFile) {
+      setImagePreview(null);
+      return;
+    }
+    const objectUrl = URL.createObjectURL(imageFile);
+    setImagePreview(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [imageFile]);
 
-      return initializeHEContext(token, keysAndParams);
-    },
-    onSuccess: () => {
-      alert("HE System Initialized and Keys Exchanged successfully!");
-    },
-    onError: (error: Error) => {
-      alert(`Initialization Failed: ${error.message}`);
-    },
+  // 3. Mutation using your requested style
+  const { mutateAsync: uploadMutate, isPending: uploadPending } = useMutation({
+    mutationKey: ["UploadCiphertext"],
+    mutationFn: (payload: UploadPayload) => uploadCiphertext(payload), // Remove 'token' argument
   });
 
-  // --- STEP 3: Encrypt and Upload Data ---
-  const uploadMutation = useMutation({
-    mutationFn: async ({
-      dataId,
-      dataArray,
-      metadata,
-    }: {
-      dataId: string;
-      dataArray: number[];
-      metadata: any;
-    }) => {
-      const ciphertextBase64 = encryptData(dataArray);
+  const handleUpload = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isReady) return toast.error("Encryption not initialized.");
 
-      const uploadPayload = {
-        dataId: dataId,
-        ciphertextBase64: ciphertextBase64,
-        scheme: "ckks",
-        metadata: metadata,
+    try {
+      let numericVector: number[] = [];
+      let metadata: any = {
+        type: dataType,
+        uploadedAt: new Date().toISOString(),
       };
-      return uploadCiphertext(token, uploadPayload);
-    },
-    onSuccess: (data) => {
-      alert(`Ciphertext uploaded successfully! ID: ${data.id}`);
+
+      // 1. --- Processing Logic ---
+      if (dataType === "text") {
+        numericVector = Array.from(rawData).map((c) => c.charCodeAt(0));
+        metadata.charCount = rawData.length;
+        metadata.format = "text-sequence";
+      } else if (dataType === "image" && imageFile) {
+        // Using IMAGE_HE_SIZE = 26
+        numericVector = await imageFileToNormalizedVector(
+          imageFile,
+          IMAGE_HE_SIZE
+        );
+
+        // Verification: 36 * 36 * 3 = 2028
+        metadata.resolution = `${IMAGE_HE_SIZE}x${IMAGE_HE_SIZE}`;
+        metadata.channels = "RGB";
+        metadata.format = "color-vector";
+        metadata.pixelCount = IMAGE_HE_SIZE * IMAGE_HE_SIZE;
+      }
+
+      // 2. --- Strict Capacity Validation (For polyModulusDegree: 4096) ---
+      // Inside handleUpload in DataUploadPage.tsx
+      const MAX_SLOTS = 4096; // 8192 / 2 = 4096 slots available
+
+      if (numericVector.length > MAX_SLOTS) {
+        throw new Error(
+          `Data size (${numericVector.length}) exceeds ${MAX_SLOTS} limit.`
+        );
+      }
+
+      if (numericVector.length === 0) throw new Error("No data provided");
+
+      // if (numericVector.length > MAX_SLOTS) {
+      //   throw new Error(
+      //     `Data size (${numericVector.length}) exceeds 2048 limit. ` +
+      //       `Current RGB 26x26 uses 2028 slots.`
+      //   );
+      // }
+
+      // 3. --- Encryption with Typed Array ---
+      // Converting to Float64Array here prevents the std::invalid_argument error
+      const floatArray = new Float64Array(numericVector);
+      const ciphertextBase64 = encryptData(floatArray);
+
+      // 4. --- Calculate Ciphertext Storage Size ---
+      // This allows the dashboard to show the KB size before downloading
+      const sizeInBytes = Math.floor(ciphertextBase64.length * (3 / 4));
+      metadata.sizeBytes = sizeInBytes;
+
+      const payload: UploadPayload = {
+        dataId,
+        ciphertextBase64,
+        scheme: "ckks",
+        metadata,
+      };
+
+      // 5. --- Execution ---
+      await uploadMutate(payload);
+
+      toast.success(
+        `Securely uploaded ${dataType} (${Math.round(sizeInBytes / 1024)} KB)`
+      );
+
+      // Reset Form
       setRawData("");
       setImageFile(null);
       setDataId("");
-    },
-    onError: (error: Error) => {
-      alert(`Upload Failed: ${error.message}`);
-    },
-  });
-
-  const handleUploadSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!dataId) {
-      alert("Please provide a unique Data ID.");
-      return;
+    } catch (err: any) {
+      console.error("Upload Error:", err);
+      toast.error(err.message || "Upload failed");
     }
-
-    let dataArray: number[] = [];
-    let metadata = {};
-
-    try {
-      if (dataType === "text") {
-        // Handle comma-separated text data
-        dataArray = rawData
-          .split(",")
-          .map((s) => parseFloat(s.trim()))
-          .filter((n) => !isNaN(n));
-        metadata = { sourceType: "vector", vectorSize: dataArray.length };
-      } else if (dataType === "image" && imageFile) {
-        // Handle image file data
-        dataArray = await imageFileToNormalizedVector(imageFile, IMAGE_HE_SIZE);
-        metadata = {
-          sourceType: "image",
-          imageSize: `${IMAGE_HE_SIZE}x${IMAGE_HE_SIZE}`,
-          vectorSize: dataArray.length,
-        };
-      }
-    } catch (error: any) {
-      alert(`Data Conversion Error: ${error.message}`);
-      return;
-    }
-
-    if (dataArray.length === 0) {
-      alert("Input data is invalid or empty.");
-      return;
-    }
-
-    if (!initMutation.isSuccess) {
-      alert("ERROR: Please initialize the HE system (Step 1) first.");
-      return;
-    }
-
-    uploadMutation.mutate({ dataId, dataArray, metadata });
   };
 
   return (
-    <div className="min-h-screen bg-blue-50 p-8">
-      <div className="max-w-4xl mx-auto bg-white p-6 rounded-xl shadow-2xl space-y-8">
-        <h2 className="text-3xl font-bold text-blue-700">
-          Homomorphic Data Upload 🛡️
-        </h2>
-
-        {/* --- Step 1: Initialization (Same as before) --- */}
-        <div className="border p-5 rounded-lg border-blue-200 bg-blue-50">
-          <h3 className="text-xl font-semibold text-blue-600 mb-3">
-            Step 1: Initialize HE Context & Exchange Keys
-          </h3>
-          <button
-            onClick={() => initMutation.mutate()}
-            disabled={initMutation.isPending}
-            className={`w-full py-3 px-4 rounded-lg text-white font-semibold transition duration-200 ${
-              initMutation.isPending
-                ? "bg-gray-400 cursor-not-allowed"
-                : "bg-blue-600 hover:bg-blue-700"
-            }`}
-          >
-            {initMutation.isPending
-              ? "Initializing SEAL..."
-              : "Initialize HE System & Exchange Keys"}
-          </button>
-          {/* ... (Success/Error messages) ... */}
+    <div className="min-h-screen bg-slate-50 py-12 px-4 flex justify-center items-center">
+      <Toaster position="top-right" />
+      <div className="max-w-xl w-full bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden">
+        <div className="bg-slate-900 p-8 text-white">
+          <h1 className="text-2xl font-bold">Secure Data Upload</h1>
+          <p className="text-slate-400 text-sm">
+            Your data never leaves this browser unencrypted.
+          </p>
         </div>
 
-        {/* --- Step 2: Encrypt and Upload Data (Modified) --- */}
-        <div
-          className={`border p-5 rounded-lg ${
-            initMutation.isSuccess ? "border-green-300" : "border-gray-300"
-          }`}
-        >
-          <h3 className="text-xl font-semibold text-green-700 mb-3">
-            Step 2: Encrypt & Upload Data
-          </h3>
+        <form onSubmit={handleUpload} className="p-8 space-y-6">
+          {/* Unique Data ID Input */}
+          <div>
+            <label className="block text-xs font-bold uppercase text-slate-500 mb-2">
+              Unique Data ID
+            </label>
+            <input
+              required
+              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-blue-500 outline-none transition-all"
+              placeholder="e.g. medical_record_001"
+              value={dataId}
+              onChange={(e) => setDataId(e.target.value)}
+            />
+          </div>
 
-          <form onSubmit={handleUploadSubmit} className="space-y-4">
-            <div>
-              <label
-                htmlFor="dataId"
-                className="block text-sm font-medium text-gray-700 mb-1"
+          {/* Type Toggle */}
+          <div className="flex p-1 bg-slate-100 rounded-2xl">
+            {(["text", "image"] as const).map((type) => (
+              <button
+                key={type}
+                type="button"
+                onClick={() => setDataType(type)}
+                className={`flex-1 py-2 text-sm font-bold rounded-xl transition-all ${
+                  dataType === type
+                    ? "bg-white shadow text-blue-600"
+                    : "text-slate-500 hover:text-slate-700"
+                }`}
               >
-                Unique Data Identifier
-              </label>
-              <input
-                type="text"
-                id="dataId"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500"
-                value={dataId}
-                onChange={(e) => setDataId(e.target.value)}
-                placeholder="e.g., Cat_Image_1 or Q4_Sales"
+                {type.toUpperCase()}
+              </button>
+            ))}
+          </div>
+
+          {/* Upload/Input Area */}
+          <div className="min-h-[200px] border-2 border-dashed border-slate-200 rounded-2xl flex flex-col justify-center items-center p-4 bg-slate-50/50">
+            {dataType === "text" ? (
+              <textarea
                 required
-                disabled={!initMutation.isSuccess}
+                className="w-full h-40 bg-transparent outline-none resize-none font-mono text-sm p-2"
+                placeholder="Enter character sequence..."
+                value={rawData}
+                onChange={(e) => setRawData(e.target.value)}
               />
-            </div>
-
-            {/* Data Type Selector */}
-            <div className="flex space-x-4">
-              <label className="flex items-center space-x-2 text-sm font-medium text-gray-700">
-                <input
-                  type="radio"
-                  name="dataType"
-                  value="text"
-                  checked={dataType === "text"}
-                  onChange={() => setDataType("text")}
-                  disabled={!initMutation.isSuccess}
-                />
-                Raw Vector Data
-              </label>
-              <label className="flex items-center space-x-2 text-sm font-medium text-gray-700">
-                <input
-                  type="radio"
-                  name="dataType"
-                  value="image"
-                  checked={dataType === "image"}
-                  onChange={() => setDataType("image")}
-                  disabled={!initMutation.isSuccess}
-                />
-                Encrypt Image
-              </label>
-            </div>
-
-            {/* Conditional Input Field */}
-            {dataType === "text" && (
-              <div>
-                <label
-                  htmlFor="rawData"
-                  className="block text-sm font-medium text-gray-700 mb-1"
-                >
-                  Raw Data (Comma-Separated Numbers)
-                </label>
-                <textarea
-                  id="rawData"
-                  rows={4}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 font-mono"
-                  value={rawData}
-                  onChange={(e) => setRawData(e.target.value)}
-                  placeholder="e.g., 100.5, 20.3, 55.7, 88.0"
-                  required
-                  disabled={!initMutation.isSuccess}
-                />
-              </div>
-            )}
-
-            {dataType === "image" && (
-              <div className="border-l-4 border-yellow-500 pl-3">
-                <label
-                  htmlFor="imageFile"
-                  className="block text-sm font-medium text-gray-700 mb-1"
-                >
-                  Image File (Will be resized to {IMAGE_HE_SIZE}x{IMAGE_HE_SIZE}
-                  )
-                </label>
-                <input
-                  type="file"
-                  id="imageFile"
-                  accept="image/*"
-                  onChange={(e) =>
-                    setImageFile(e.target.files ? e.target.files[0] : null)
-                  }
-                  className="w-full file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200"
-                  required
-                  disabled={!initMutation.isSuccess}
-                />
-                {imageFile && (
-                  <p className="mt-2 text-xs text-gray-500">
-                    Selected: {imageFile.name}
-                  </p>
+            ) : (
+              <div className="text-center w-full">
+                {imagePreview ? (
+                  <div className="relative inline-block">
+                    <img
+                      src={imagePreview}
+                      alt="Preview"
+                      className="h-40 w-40 object-cover rounded-lg shadow-md border-4 border-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setImageFile(null)}
+                      className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full h-6 w-6 flex items-center justify-center text-xs shadow-lg hover:bg-red-600 transition-colors"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ) : (
+                  <label className="cursor-pointer py-10 block group">
+                    <span className="text-blue-600 font-bold underline group-hover:text-blue-700">
+                      Select Image
+                    </span>
+                    <p className="text-slate-400 text-xs mt-2">
+                      JPG, PNG supported (Auto-resized to 26x26)
+                    </p>
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept="image/*"
+                      onChange={(e) =>
+                        setImageFile(e.target.files?.[0] || null)
+                      }
+                    />
+                  </label>
                 )}
               </div>
             )}
+          </div>
 
-            <button
-              type="submit"
-              disabled={uploadMutation.isPending || !initMutation.isSuccess}
-              className={`w-full py-3 px-4 rounded-lg text-white font-semibold transition duration-200 ${
-                uploadMutation.isPending || !initMutation.isSuccess
-                  ? "bg-gray-400 cursor-not-allowed"
-                  : "bg-green-600 hover:bg-green-700"
-              }`}
-            >
-              {uploadMutation.isPending
-                ? "Encrypting & Uploading..."
-                : "Encrypt Data & Store on Server"}
-            </button>
-          </form>
-          {/* ... (Success/Error messages) ... */}
-        </div>
+          {/* NEW: Live Encryption Metadata Summary */}
+          {(rawData || imageFile) && (
+            <div className="bg-blue-50 rounded-2xl p-4 border border-blue-100 space-y-3">
+              <h4 className="text-[10px] font-black text-blue-900 uppercase tracking-widest">
+                Pre-Encryption Summary
+              </h4>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col">
+                  <span className="text-xs text-blue-600 font-medium">
+                    Vector Length
+                  </span>
+                  <span className="text-lg font-bold text-slate-900">
+                    {dataType === "text" ? rawData.length : 26 * 26 * 3}
+                  </span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-xs text-blue-600 font-medium">
+                    Slot Capacity
+                  </span>
+                  <span className="text-lg font-bold text-slate-900">
+                    {Math.round(
+                      ((dataType === "text" ? rawData.length : 2028) / 2048) *
+                        100
+                    )}
+                    %
+                  </span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-xs text-blue-600 font-medium">
+                    Resolution
+                  </span>
+                  <span className="text-lg font-bold text-slate-900">
+                    {dataType === "image" ? "26 × 26" : "N/A"}
+                  </span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-xs text-blue-600 font-medium">
+                    Color Mode
+                  </span>
+                  <span className="text-lg font-bold text-slate-900">
+                    {dataType === "image" ? "RGB" : "UTF-8"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={uploadPending || !isReady}
+            className={`w-full py-4 rounded-2xl font-black text-lg shadow-lg transition-all transform active:scale-[0.98] ${
+              uploadPending || !isReady
+                ? "bg-slate-200 text-slate-400 cursor-not-allowed"
+                : "bg-blue-600 text-white hover:bg-blue-700 shadow-blue-200 hover:shadow-xl"
+            }`}
+          >
+            {uploadPending ? "ENCRYPTING DATA..." : "PROTECT & UPLOAD"}
+          </button>
+
+          <p className="text-center text-[10px] text-slate-400 uppercase tracking-widest font-bold">
+            Powered by Microsoft SEAL • CKKS Scheme
+          </p>
+        </form>
       </div>
     </div>
   );

@@ -69,3 +69,16 @@ export const GetSaltAPI = async (email: string): Promise<{ message: string; salt
         return undefined;
     }
 };
+
+
+export const UpdateHEKeysAPI = async (keysAndParams: any) => {
+    const user = await getUserFromStorage();
+    console.log(user)
+    const token = user?.token;
+    const response = await axios.post(`${BASE_URL}/update-he-keys`, keysAndParams, {
+        headers: {
+            Authorization: `Bearer ${token}`
+        }
+    });
+    return response.data;
+};

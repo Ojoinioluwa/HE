@@ -1,6 +1,6 @@
 import dotenv from "dotenv"
 dotenv.config(); // Load environment variables first
-
+import cors from "cors"
 import express from "express"
 import mongoose from "mongoose"
 import SEAL from "node-seal" // The SEAL factory function
@@ -17,7 +17,19 @@ import heRouter from "./routes/he/heRouter.js";
 
 
 const app = express();
+
 const PORT = process.env.PORT || 8888;
+
+
+const allowedOrigin =
+    process.env.NODE_ENV === 'production'
+        ? 'https://he.com' // replace with your real domain
+        : 'http://localhost:5173';
+
+app.use(cors({
+    origin: allowedOrigin,
+    credentials: true, // allows sending cookies/auth headers
+}));
 
 
 // --- Initialization Functions ---
@@ -76,7 +88,9 @@ async function startServer() {
     await connectToMongoDB();
 
     // --- Express Middleware Setup ---
-    app.use(express.json());
+    // Increase the limit to 50MB (HE keys can be several MBs)
+    app.use(express.json({ limit: '50mb' }));
+    app.use(express.urlencoded({ limit: '50mb', extended: true }));
     app.use(limiter);
     app.use(helmet());
 

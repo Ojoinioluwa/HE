@@ -6,7 +6,6 @@ import authReducer from './slice/authSlice.ts';
 export const store = configureStore({
     reducer: {
         auth: authReducer,
-        // Add other slices here (e.g., 'ui', 'settings')
     },
 });
 

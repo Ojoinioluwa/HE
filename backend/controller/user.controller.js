@@ -15,16 +15,20 @@ import validatePassword from "../utils/passwordValidator.js";
 const userController = {
     // register the user 
     register: asyncHandler(async (req, res) => {
-        const { firstName, lastName, email, phoneNumber, password, role } = req.body;
-        console.log("iniiij")
+        const { firstName, lastName, email, phoneNumber, password } = req.body;
+        console.log(firstName)
+        console.log(lastName)
+        console.log(email)
+        console.log(phoneNumber)
 
-        if (!firstName || !lastName || !email || !phoneNumber || !password || !role) {
+        if (!firstName || !lastName || !email || !phoneNumber || !password) {
             return res.status(400).json({ success: false, message: 'All fields are required' });
         }
 
         if (!validator.isEmail(email)) {
             return res.status(400).json({ success: false, message: 'Enter a valid email format' });
         }
+        console.log("iniiij")
 
         if (!validator.isStrongPassword(password)) {
             const passwordIssues = validatePassword(password);
@@ -54,9 +58,7 @@ const userController = {
             email,
             password: hashedPassword,
             phoneNumber,
-            userType: role
         });
-
 
 
         try {
@@ -65,8 +67,6 @@ const userController = {
                 email: user.email,
                 firstName: user.firstName
             });
-
-
             return res.status(200).json({ success: true, message: 'Registration successful. Verification email sent.', response });
         } catch (err) {
             console.error('Email send error:', err);
@@ -123,7 +123,7 @@ const userController = {
             throw new Error("All fields are required")
         }
 
-        const user = await User.findOne({ email })
+        const user = await User.findOne({ email }).select('-heConfig.publicKey -heConfig.evaluationKey');
 
         if (!user) {
             res.status(400)
@@ -174,6 +174,45 @@ const userController = {
                 role: user.userType,
             }
         })
+    }),
+
+
+    updateHEKeys: asyncHandler(async (req, res) => {
+        try {
+            const { publicKey, evaluationKey, params, scheme, wrappedSecretKey } = req.body;
+            const userId = req.user._id;
+
+
+
+            if (!publicKey || !evaluationKey) {
+                return res.status(400).json({ message: "Missing required encryption keys." });
+            }
+
+            const updatedUser = await User.findByIdAndUpdate(
+                userId,
+                {
+                    $set: {
+                        "heConfig.publicKey": publicKey,
+                        "heConfig.evaluationKey": evaluationKey,
+                        "heConfig.params": params,
+                        "heConfig.scheme": scheme,
+                        "heConfig.isInitialized": true,
+                        "heConfig.wrappedSecretKey": wrappedSecretKey
+
+                    }
+                },
+                { new: true }
+            );
+            console.log("done")
+
+            res.status(200).json({
+                message: "Encryption keys synchronized successfully.",
+                isInitialized: updatedUser.heConfig.isInitialized
+            });
+        } catch (error) {
+            console.error("Error updating HE keys:", error);
+            res.status(500).json({ message: "Internal server error during key sync." });
+        }
     }),
 
     // get user profile
@@ -361,9 +400,6 @@ const userController = {
             message: "Password has been reset successfully. You can now log in."
         });
     }),
-
-
-
 
 }
 

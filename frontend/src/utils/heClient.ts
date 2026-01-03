@@ -1,231 +1,232 @@
-// src/utils/heClient.ts
-
 import SEAL from 'node-seal';
-// NOTE: Make sure to `npm install node-seal` if you haven't already.
 
-// Global objects for the client
+// Global objects for the client session
 let seal: SEAL = null as any;
-let keyGenerator: SEAL.KeyGenerator | null = null;
 let encryptor: SEAL.Encryptor | null = null;
-let context: SEAL.Context | null = null; // Type remains Context, but constructor call changes
+let context: SEAL.Context | null = null;
 const encoders: { ckks?: SEAL.CKKSEncoder } = {};
 
-// --- Recommended HE Parameters (CKKS for floating point) ---
-// Note: This scale must be consistent with the backend's Linear Regression constant SCALE (2**40)
-const HE_PARAMS = {
+export const HE_PARAMS = {
     scheme: 'ckks',
     ckks: {
-        polyModulusDegree: 8192,
-        coeffModulusBitSizes: [40, 40, 40, 40, 40],
-        scale: 2 ** 40
+        polyModulusDegree: 8192, // Stick to 8192 for images
+        coeffModulusBitSizes: [40, 40, 40, 40],
+        scale: Math.pow(2, 30)
     }
 };
 
 /**
- * 1. Initializes SEAL WebAssembly, Context, and KeyGenerator.
+ * 1. Initializes SEAL WebAssembly and Context.
  */
 export async function initializeSEALClient() {
     if (seal) return;
 
-    console.log("Loading SEAL WASM...");
-
-    // WASM loading logic remains necessary for browser environments
     seal = await SEAL({
-        wasmUrl: "/seal_all.wasm",
-        locateFile: (path: string) => {
-            if (path.endsWith(".wasm")) {
-                return "/seal_all.wasm";
-            }
-            return path;
-        }
+        locateFile: (path: string) => path.endsWith(".wasm") ? "/seal_all.wasm" : path
     });
 
-    if (!seal) {
-        throw new Error("SEAL failed to initialize (seal is undefined).");
-    }
-
-    console.log("Client-side SEAL initialized.");
-
-    // --- 2. Encryption parameters (CKKS) ---
     const parms = new seal.EncryptionParameters(seal.SchemeType.ckks);
     parms.setPolyModulusDegree(HE_PARAMS.ckks.polyModulusDegree);
-    const coeffBits = new Int32Array(HE_PARAMS.ckks.coeffModulusBitSizes);
+    parms.setCoeffModulus(seal.CoeffModulus.Create(HE_PARAMS.ckks.polyModulusDegree, new Int32Array(HE_PARAMS.ckks.coeffModulusBitSizes)));
 
-    parms.setCoeffModulus(
-        seal.CoeffModulus.Create(
-            HE_PARAMS.ckks.polyModulusDegree,
-            coeffBits
-        )
-    );
-
-
-    // Use the safest, most stable security level: none
-    const securityLevel = seal.SecLevelType.tc128
-    console.log(securityLevel)
-
-
-    // --- 3. Create SEAL context ---
-    // ✅ FIX: Added the third parameter (securityLevel)
-    context = new seal.SEALContext(
-        parms,
-        true,          // enable expandModChain
-        securityLevel  // 3. Must be provided, even if it's 'none'
-    );
-
-    if (!context.parametersSet()) {
-        throw new Error("Failed to validate CKKS encryption parameters. Context is invalid.");
-    }
-
-
-    if (context.keyContextData()) {
-        console.warn("SEAL Context Warning:", context.keyContextData());
-    }
-
-    // --- 4. Generate keys + encoders ---
-    // Use 'new' for constructors.
-    keyGenerator = new seal.KeyGenerator(context);
+    context = new seal.SEALContext(parms, true, seal.SecLevelType.tc128);
     encoders.ckks = new seal.CKKSEncoder(context);
 
-    console.log("SEAL CKKS client initialized successfully.");
 }
 
+/**
+ * 2. AES Key Derivation
+ * Uses the password and email to create a key for locking/unlocking the HE Secret Key.
+ */
+async function getAESKey(password: string, email: string): Promise<CryptoKey> {
+    const enc = new TextEncoder();
+    const keyMaterial = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveKey"]);
+    return crypto.subtle.deriveKey(
+        { name: "PBKDF2", salt: enc.encode(email), iterations: 100000, hash: "SHA-256" },
+        keyMaterial,
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["encrypt", "decrypt"]
+    );
+}
 
 /**
- * 2. Generates HE keys (Public, Relin) and prepares the payload for the backend.
- * @returns The complete initialization payload for the backend.
+ * 3. Generate & Wrap Keys (For Registration)
+ * Generates a real HE key and encrypts it with the password.
  */
-export function generateHEInitPayload() {
-    if (!keyGenerator || !context || !seal) throw new Error("SEAL not initialized.");
 
-    // Generate keys
-    // ✅ FIX: Use secretKey() as confirmed by the documentation.
-    const secretKey = keyGenerator.secretKey();
+export async function createAndWrapKeys(password: string, email: string) {
+    if (!seal || !context) await initializeSEALClient();
 
-    // The createPublicKey/createRelinKeys methods are correct as functions.
-    const publicKey = keyGenerator.createPublicKey();
-    const relinKeys = keyGenerator.createRelinKeys(true);
+    const keygen = new seal.KeyGenerator(context!);
+    const secretKey = keygen.secretKey();
+    const publicKey = keygen.createPublicKey();
+    const relinKeys = keygen.createRelinKeys();
 
-    // Create Encryptor and save it globally (for encrypting user data)
-    encryptor = new seal.Encryptor(context, publicKey);
+    // 1. Force a specific compression mode. 
+    // "none" is the most compatible and avoids the 'value' undefined error.
+    const compression = seal.ComprModeType.none;
 
-
-    // V7 FIX: Serialization methods must now specify compression mode.
-    const compression = seal.ComprModeType.zstd;
-
-    // Serialize keys to Base64 
+    // 2. Pass the compression mode explicitly to every call
+    const secretKeyBase64 = secretKey.saveToBase64(compression);
     const publicKeyBase64 = publicKey.saveToBase64(compression);
     const relinKeysBase64 = relinKeys.saveToBase64(compression);
-    const secretKeyBase64 = secretKey.saveToBase64(compression);
 
-    // CRITICAL: Clean up temporary SEAL objects to prevent memory leaks
-    publicKey.delete();
-    relinKeys.delete();
-    // NOTE: We do NOT delete the secretKey here if you intend to save 
-    // it locally for later decryption, which is your goal. However,
-    // since you delete it in the current code, I will keep that logic 
-    // but warn you that typically you *wouldn't* delete the secretKey 
-    // if you plan to save and reuse the object in JS memory before deletion.
-    secretKey.delete();
+    // 3. Wrap the Secret Key with AES-GCM
+    const aesKey = await getAESKey(password, email);
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encryptedData = await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv },
+        aesKey,
+        new TextEncoder().encode(secretKeyBase64)
+    );
 
-    return {
+    const wrappedKey = JSON.stringify({
+        iv: Array.from(iv),
+        ciphertext: Array.from(new Uint8Array(encryptedData))
+    });
+
+    const result = {
         keysAndParams: {
             scheme: HE_PARAMS.scheme,
             params: HE_PARAMS.ckks,
             publicKeyBase64: publicKeyBase64,
             evaluationKeysBase64: relinKeysBase64,
         },
-        secretKeyBase64
+        wrappedSecretKey: btoa(wrappedKey)
     };
+
+    // Cleanup
+    publicKey.delete();
+    relinKeys.delete();
+    secretKey.delete();
+
+    return result;
 }
 
 /**
- * 3. Encrypts a numeric array for upload.
- * @param data - The array of numbers to encrypt.
- * @returns The encrypted ciphertext in Base64.
+ * 4. Unwrap & Load Keys (For Login)
+ * Takes the wrapped key from the DB and unlocks it with the password.
  */
-export function encryptData(data: number[]): string {
-    if (!encryptor || !encoders.ckks || !seal || !context) {
-        throw new Error("Encryptor not initialized. Run key generation first.");
-    }
+export async function unwrapAndLoadKeys(wrappedKeyBase64: string, password: string, email: string) {
+    if (!seal) await initializeSEALClient();
 
-    // ✅ FIX: Using 'new' for both Plaintext and Ciphertext for consistency with documentation style
+    const { iv, ciphertext } = JSON.parse(atob(wrappedKeyBase64));
+    const aesKey = await getAESKey(password, email);
+
+    const decrypted = await crypto.subtle.decrypt(
+        { name: "AES-GCM", iv: new Uint8Array(iv) },
+        aesKey,
+        new Uint8Array(ciphertext)
+    );
+
+    const secretKeyBase64 = new TextDecoder().decode(decrypted);
+
+    // Load into SEAL
+    const secretKey = new seal.SecretKey();
+    secretKey.loadFromBase64(context!, secretKeyBase64);
+
+    const keygen = new seal.KeyGenerator(context!, secretKey);
+    const publicKey = keygen.createPublicKey();
+    encryptor = new seal.Encryptor(context!, publicKey);
+
+    secretKey.delete();
+    publicKey.delete();
+
+    return secretKeyBase64;
+}
+
+/**
+ * 5. Encrypt Data
+ */
+export function encryptData(data: number[] | Float64Array): string {
+    if (!encryptor || !encoders.ckks || !seal) throw new Error("Encryptor not ready");
+
+    // FIX: Force conversion to Float64Array if it's a standard number array
+    const inputData = data instanceof Float64Array ? data : new Float64Array(data);
+
     const plain = new seal.Plaintext();
     const cipher = new seal.Ciphertext();
-    const scale = HE_PARAMS.ckks.scale;
 
     try {
-        // Encode the data using CKKS
-        encoders.ckks.encode(data, scale, plain);
-
-        // Encrypt the plaintext
+        // SEAL's encode method requires Float64Array specifically
+        encoders.ckks.encode(inputData, HE_PARAMS.ckks.scale, plain);
         encryptor.encrypt(plain, cipher);
 
-        // ✅ V7 FIX: Serialization methods must now specify compression mode.
-        const ciphertextBase64 = cipher.saveToBase64(seal.ComprModeType.zstd);
-        return ciphertextBase64;
-
-    } catch (e: any) {
-        console.error("Encryption Failed:", e);
-        // ... error handling ...
-        const errorMsg = e.message.includes('too many coefficients')
-            ? "Input array is too large for the HE parameters (max slots: 4096)."
-            : "Data encryption failed. Check input data format and parameters.";
-        throw new Error(errorMsg);
+        const base64 = cipher.saveToBase64(seal.ComprModeType.zstd);
+        return base64;
     } finally {
-        // CRITICAL: Clean up temporary SEAL objects
+        // Clean up memory to avoid WASM memory leaks
         plain.delete();
         cipher.delete();
     }
 }
-
-
 /**
- * 4. Decrypts a ciphertext Base64 string using the local Secret Key.
- * @param ciphertextBase64 - The ciphertext from the server.
- * @param secretKeyBase64 - The user's private key.
- * @returns The decrypted array of numbers.
+ * 6. Decrypt Data
  */
-export function decryptCiphertext(ciphertextBase64: string, secretKeyBase64: string): number[] {
-    if (!seal || !context) throw new Error("SEAL not initialized.");
-    if (!encoders.ckks) throw new Error("CKKS Encoder not available.");
+export async function decryptCiphertext(
+    ciphertextBase64: string,
+    secretKeyBase64: string
+): Promise<Float64Array> {
+    if (!seal || !context) await initializeSEALClient();
 
-    let secretKey = null;
-    let decryptor = null;
-    let cipher = null;
-    let plain = null;
+    const secretKey = new seal.SecretKey();
+    secretKey.loadFromBase64(context!, secretKeyBase64);
+
+    const decryptor = new seal.Decryptor(context!, secretKey);
+    const ckksEncoder = new seal.CKKSEncoder(context!);
+
+    const cipher = new seal.Ciphertext();
+    const plain = new seal.Plaintext();
+
 
     try {
-        // 1. Load Secret Key
-        secretKey = new seal.SecretKey();
+        cipher.loadFromBase64(context!, ciphertextBase64);
 
-        // Loading uses the context and buffer
-        secretKey.load(context, Buffer.from(secretKeyBase64, 'base64'));
-
-        // 2. Create Decryptor
-        decryptor = new seal.Decryptor(context, secretKey);
-
-        // 3. Deserialize Ciphertext
-        cipher = new seal.Ciphertext(); // ✅ FIX: Use 'new'
-        cipher.load(context, Buffer.from(ciphertextBase64, 'base64'));
-
-        // 4. Decrypt
-        plain = new seal.Plaintext(); // ✅ FIX: Use 'new'
+        // 1. Decrypt the ciphertext into the plaintext object
         decryptor.decrypt(cipher, plain);
 
-        // 5. Decode
-        const result = encoders.ckks.decode(plain);
+        // 2. USE THE CORRECT METHOD NAME FOUND IN YOUR LOG
+        // In your build, it's decodeFloat64
+        const result = ckksEncoder.decodeFloat64(plain);
 
-        // Filter out zero-padding elements often found after the actual data
-        return result.filter(v => typeof v === 'number');
+        // 3. Cleanup WASM memory
+        cipher.delete();
+        plain.delete();
+        decryptor.delete();
+        secretKey.delete();
+        ckksEncoder.delete();
 
-    } catch (e: any) {
-        console.error("SEAL Decryption/Decoding Error:", e);
-        throw new Error(`Client-side SEAL decryption failed: ${e.message}`);
-    } finally {
-        // CRITICAL: Memory Cleanup
-        if (secretKey) secretKey.delete();
-        if (decryptor) decryptor.delete();
+        return result;
+    } catch (error) {
         if (cipher) cipher.delete();
         if (plain) plain.delete();
+        if (secretKey) secretKey.delete();
+        if (decryptor) decryptor.delete();
+        if (ckksEncoder) ckksEncoder.delete();
+        console.error("SEAL Decryption Error:", error);
+        throw error;
     }
+}
+/**
+ * Re-initializes the SEAL Encryptor using a Base64 Secret Key.
+ * Crucial for session persistence when moving between pages.
+ */
+export async function initializeEncryptorFromKey(secretKeyBase64: string) {
+    if (!seal || !context) await initializeSEALClient();
+
+    // 1. Create SecretKey object from string
+    const secretKey = new seal.SecretKey();
+    secretKey.loadFromBase64(context!, secretKeyBase64);
+
+    // 2. Derive Public Key (Required for Encryption)
+    const keygen = new seal.KeyGenerator(context!, secretKey);
+    const publicKey = keygen.createPublicKey();
+
+    // 3. Set the global encryptor
+    encryptor = new seal.Encryptor(context!, publicKey);
+
+    // Cleanup WASM memory for temporary objects
+    secretKey.delete();
+    publicKey.delete();
 }

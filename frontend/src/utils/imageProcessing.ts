@@ -5,9 +5,17 @@
  * @param targetSize - The desired dimension (e.g., 64 for 64x64 image). Must be square for simplicity.
  * @returns A promise that resolves to an array of numbers (R, G, B, A, or grayscale values).
  */
+
+import { HE_PARAMS } from "./heClient";
+
+/**
+ * Converts an Image File (PNG, JPG) into a flat array of normalized numeric values (0.0 to 1.0).
+ */
+
+
 export async function imageFileToNormalizedVector(
     file: File,
-    targetSize: number = 64
+    targetSize: number = 36
 ): Promise<number[]> {
     if (!file.type.startsWith('image/')) {
         throw new Error('File must be an image type (e.g., JPEG, PNG).');
@@ -26,39 +34,35 @@ export async function imageFileToNormalizedVector(
                     return reject(new Error("Could not get canvas context."));
                 }
 
-                // 1. Set canvas size to the target HE dimension (e.g., 64x64)
+                // 1. Set canvas size to the target HE dimension
                 canvas.width = targetSize;
                 canvas.height = targetSize;
 
-                // 2. Draw the image, resizing it to the target dimensions
+                // 2. Draw and resize
                 ctx.drawImage(img, 0, 0, targetSize, targetSize);
 
-                // 3. Get the pixel data (RGBA)
+                // 3. Extract RGBA data
                 const imageData = ctx.getImageData(0, 0, targetSize, targetSize);
-                const pixelData = imageData.data; // A Uint8ClampedArray: [R, G, B, A, R, G, B, A, ...]
+                const pixelData = imageData.data;
 
                 const vector: number[] = [];
 
-                // 4. Convert 8-bit color values (0-255) to normalized floating-point values (0.0 - 1.0)
-                // We use only R, G, B channels for simplicity (3 values per pixel)
+                // 4. Normalize RGB values
                 for (let i = 0; i < pixelData.length; i += 4) {
-                    // Normalize R, G, B
-                    vector.push(pixelData[i] / 255.0);   // Red
-                    vector.push(pixelData[i + 1] / 255.0); // Green
-                    vector.push(pixelData[i + 2] / 255.0); // Blue
-                    // We skip the Alpha channel for Homomorphic Computation
+                    vector.push(pixelData[i] / 255.0);     // R
+                    vector.push(pixelData[i + 1] / 255.0); // G
+                    vector.push(pixelData[i + 2] / 255.0); // B
+                    // Alpha is skipped
                 }
 
-                // CRITICAL CHECK: Ensure the vector size doesn't exceed the HE slot capacity (4096 in your case)
-                // targetSize=64 => 64*64=4096 pixels. 4096 * 3 channels = 12288 required slots.
-                // Since your HE parameters (polyModulusDegree: 8192) give 4096 slots, 
-                // we must stick to a smaller image, or use grayscale/a 32x32 image (32*32*3=3072 slots).
-                // Let's force a safe default size here: 32x32 = 1024 pixels * 3 channels = 3072 slots.
+                // 5. Slot Capacity Check
+                const availableSlots = HE_PARAMS.ckks.polyModulusDegree / 2;
 
-                if (vector.length > (HE_PARAMS.ckks.polyModulusDegree / 2)) {
-                    // This check depends on HE_PARAMS from heClient.ts, which is outside this file.
-                    // For the sake of this code block, assume targetSize=32 is safe.
-                    console.warn(`Vector size (${vector.length}) may be too large for HE slots (Max 4096). Recommend using a 32x32 image size.`);
+                if (vector.length > availableSlots) {
+                    return reject(new Error(
+                        `Vector size (${vector.length}) exceeds CKKS slot capacity (${availableSlots}). ` +
+                        `For RGB, use targetSize 32 or smaller.`
+                    ));
                 }
 
                 resolve(vector);

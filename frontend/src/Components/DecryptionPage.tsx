@@ -1,159 +1,352 @@
-// src/components/DecryptionPage.tsx
-
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-// Assuming fetchCiphertextContent is added to your src/api/he.ts
-import { fetchCiphertextContent } from "../API/he.ts";
-// Assuming decryptCiphertext is added to your src/utils/heClient.ts
+import { getCiphertextById } from "../API/he.ts";
 import { decryptCiphertext } from "../utils/heClient";
+import { Toaster, toast } from "react-hot-toast";
+
+// MUI Icons
+import LockOpenIcon from "@mui/icons-material/LockOpen";
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import AutorenewIcon from "@mui/icons-material/Autorenew";
+import CheckCircleOutlineIcon from "@mui/icons-material/CheckCircleOutline";
+import TerminalIcon from "@mui/icons-material/Terminal";
+import InsertDriveFileIcon from "@mui/icons-material/InsertDriveFile";
+
+import type { CiphertextRecord } from "../types/heTypes.ts";
 
 interface DecryptionPageProps {
-  token: string;
-  dataId: string; // The ID of the ciphertext to decrypt (e.g., Q4_Sales_2025 or SUM_RESULT)
-  // CRITICAL: The user's private key, passed down from the HE Context
   secretKeyBase64: string;
 }
 
-const DecryptionPage: React.FC<DecryptionPageProps> = ({
-  token,
-  dataId,
-  secretKeyBase64,
-}) => {
-  const [decryptedData, setDecryptedData] = useState<number[] | null>(null);
-  const [decryptionError, setDecryptionError] = useState<string | null>(null);
+const DecryptionPage: React.FC<DecryptionPageProps> = ({ secretKeyBase64 }) => {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // 1. Fetch the Encrypted Data Content (Ciphertext Base64) from the server
-  const {
-    data: ciphertextData,
-    isLoading: isLoadingCiphertext,
-    isError: isErrorCiphertext,
-    error: ciphertextError,
-  } = useQuery({
-    queryKey: ["ciphertextContent", dataId],
-    queryFn: () => fetchCiphertextContent(token, dataId),
-    enabled: !!token && !!dataId, // Only run if we have a token and dataId
-    staleTime: Infinity, // Ciphertext won't change unless re-uploaded
+  const [processStep, setProcessStep] = useState<
+    "idle" | "fetching" | "decrypting" | "reconstructing" | "complete"
+  >("idle");
+
+  const [decryptedResult, setDecryptedResult] = useState<{
+    type: string;
+    content: any;
+  } | null>(null);
+
+  // 1. Fetch Ciphertext
+  const { data: record, isSuccess } = useQuery<CiphertextRecord>({
+    queryKey: ["ciphertext", id],
+    queryFn: () => getCiphertextById(id!),
+    enabled: !!id,
+    staleTime: Infinity,
   });
 
-  const handleDecrypt = () => {
-    setDecryptionError(null);
-    setDecryptedData(null);
+  // 2. Image Reconstruction logic
+  const renderImage = useCallback((vector: Float64Array) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
 
-    if (!ciphertextData?.ciphertextBase64) {
-      setDecryptionError("No ciphertext data available to decrypt.");
-      return;
+    const size = 26;
+    const imageData = ctx.createImageData(size, size);
+
+    for (let i = 0; i < size * size; i++) {
+      const vIdx = i * 3;
+      if (vIdx + 2 >= vector.length) break;
+
+      // Normalization check: Math.round(val * 255)
+      const r = Math.min(255, Math.max(0, Math.round(vector[vIdx] * 255)));
+      const g = Math.min(255, Math.max(0, Math.round(vector[vIdx + 1] * 255)));
+      const b = Math.min(255, Math.max(0, Math.round(vector[vIdx + 2] * 255)));
+
+      const canvasIdx = i * 4;
+      imageData.data[canvasIdx + 0] = r;
+      imageData.data[canvasIdx + 1] = g;
+      imageData.data[canvasIdx + 2] = b;
+      imageData.data[canvasIdx + 3] = 255;
     }
+    ctx.putImageData(imageData, 0, 0);
+  }, []);
 
-    if (!secretKeyBase64) {
-      setDecryptionError(
-        "Secret Key is missing. You must initialize the HE system first."
-      );
-      return;
+  // 3. EFFECT: Watch for completion to draw on Canvas
+  useEffect(() => {
+    if (
+      processStep === "complete" &&
+      decryptedResult?.type === "image" &&
+      decryptedResult.content
+    ) {
+      // Use requestAnimationFrame or a tiny timeout to ensure the canvas ref is bound
+      const timeout = setTimeout(() => {
+        renderImage(decryptedResult.content);
+      }, 50);
+      return () => clearTimeout(timeout);
     }
+  }, [processStep, decryptedResult, renderImage]);
 
-    try {
-      // 2. Perform Decryption client-side using the local Secret Key
-      const decryptedArray = decryptCiphertext(
-        ciphertextData.ciphertextBase64,
-        secretKeyBase64
-      );
+  const downloadDecryptedImage = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-      setDecryptedData(decryptedArray);
-    } catch (e: any) {
-      console.error("Decryption failed:", e);
-      // Display an informative error message
-      setDecryptionError(
-        `Decryption failed: ${e.message}. The ciphertext might be corrupted or the Secret Key is incorrect.`
-      );
-    }
+    // Create a temporary link element
+    const link = document.createElement("a");
+    link.download = `decrypted_vault_${id?.slice(-6)}.png`;
+
+    // Convert canvas to DataURL (PNG)
+    link.href = canvas.toDataURL("image/png");
+
+    // Trigger download
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    toast.success("Image exported to downloads");
   };
 
+  // 4. Main Decryption Logic
+  useEffect(() => {
+    if (!isSuccess || !record || !secretKeyBase64 || processStep !== "idle")
+      return;
+
+    const executeFullSequence = async () => {
+      try {
+        setProcessStep("fetching");
+        await new Promise((r) => setTimeout(r, 800));
+
+        setProcessStep("decrypting");
+        const vector = await decryptCiphertext(
+          record.ciphertextBase64,
+          secretKeyBase64
+        );
+
+        setProcessStep("reconstructing");
+        await new Promise((r) => setTimeout(r, 600));
+
+        const dataType = record.metadata?.type || "text";
+
+        if (dataType === "image") {
+          // Store vector so the canvas effect can pick it up
+          setDecryptedResult({ type: "image", content: vector });
+        } else if (dataType === "audio") {
+          setDecryptedResult({ type: "audio", content: vector });
+        } else {
+          const text = Array.from(vector)
+            .map((code: number) => String.fromCharCode(Math.round(code)))
+            .join("")
+            .replace(/\0/g, "");
+          setDecryptedResult({ type: "text", content: text });
+        }
+
+        setProcessStep("complete");
+        toast.success("Security Layer Decoupled Successfully");
+      } catch (err: any) {
+        console.error("Decryption error:", err);
+        toast.error("Process Failed: " + (err.message || "Unknown Error"));
+        setProcessStep("idle");
+      }
+    };
+
+    executeFullSequence();
+  }, [isSuccess, record, secretKeyBase64, processStep]);
+
+  const stats = [
+    { label: "Security Scheme", value: record?.scheme || "CKKS" },
+    { label: "Payload Type", value: record?.metadata?.type || "Generic" },
+    { label: "Decryption Loc", value: "Local Browser" },
+    { label: "Identity Status", value: "Verified", color: "text-emerald-600" },
+  ];
+
   return (
-    <div className="min-h-screen bg-blue-50 p-8">
-      <div className="max-w-4xl mx-auto bg-white p-6 rounded-xl shadow-2xl space-y-6">
-        <h2 className="text-3xl font-bold text-blue-700">
-          Decrypt Data:{" "}
-          <span className="text-gray-800 font-normal">{dataId}</span> 🔒
-        </h2>
-        <p className="text-gray-600">
-          This process uses your locally stored **Secret Key** to securely
-          reveal the private data from the server's encrypted result.
-        </p>
-
-        {/* Status Section */}
-        <div className="border p-4 rounded-lg space-y-2 bg-yellow-50 border-yellow-300">
-          <p className="text-sm font-medium text-gray-800">Current Status:</p>
-          <p className="text-xs text-gray-600">
-            **Ciphertext Fetch:**{" "}
-            {isLoadingCiphertext ? (
-              "Loading..."
-            ) : isErrorCiphertext ? (
-              <span className="text-red-500">
-                Error: {ciphertextError?.message}
-              </span>
-            ) : (
-              `Ready. Size: ${Math.round(
-                ciphertextData!.ciphertextBase64.length / 1024
-              )} KB`
-            )}
-          </p>
-          <p className="text-xs text-gray-600">
-            **Secret Key:**{" "}
-            {secretKeyBase64 ? (
-              <span className="text-green-600">Loaded locally.</span>
-            ) : (
-              <span className="text-red-500">MISSING. Cannot decrypt.</span>
-            )}
-          </p>
-        </div>
-
-        {/* Decrypt Button */}
+    <div className="min-h-screen bg-[#f8fafc] p-4 sm:p-8 font-sans">
+      <Toaster position="bottom-center" />
+      <div className="max-w-4xl mx-auto space-y-6">
         <button
-          onClick={handleDecrypt}
-          disabled={
-            isLoadingCiphertext ||
-            isErrorCiphertext ||
-            !secretKeyBase64 ||
-            !ciphertextData
-          }
-          className={`w-full py-3 px-4 rounded-lg text-white font-semibold transition duration-200 ${
-            isLoadingCiphertext || !secretKeyBase64 || !ciphertextData
-              ? "bg-gray-400 cursor-not-allowed"
-              : "bg-green-600 hover:bg-green-700"
-          }`}
+          onClick={() => navigate(-1)}
+          className="group flex items-center gap-2 text-slate-400 hover:text-slate-900 font-bold transition-all"
         >
-          Perform Local Decryption
+          <ArrowBackIcon
+            sx={{ fontSize: 18 }}
+            className="group-hover:-translate-x-1 transition-transform"
+          />
+          EXIT SECURE VAULT
         </button>
 
-        {/* Results and Error Display */}
-        {decryptionError && (
-          <div className="bg-red-100 p-3 rounded-lg text-red-700 text-sm font-medium">
-            {decryptionError}
+        <div className="bg-white rounded-[2.5rem] shadow-2xl shadow-slate-200 overflow-hidden border border-slate-100">
+          {/* Header */}
+          <div className="bg-slate-900 p-8 text-white flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div className="flex items-center gap-4">
+              <div className="bg-blue-500/10 p-3 rounded-2xl border border-blue-500/20">
+                <TerminalIcon className="text-blue-400" />
+              </div>
+              <div>
+                <h1 className="text-xl font-black tracking-tight flex items-center gap-2">
+                  {record?.dataId}{" "}
+                  <span className="text-slate-500 text-xs font-mono">
+                    [{id?.slice(-6)}]
+                  </span>
+                </h1>
+                <p className="text-slate-400 text-xs font-mono uppercase tracking-widest mt-1">
+                  Client-Side Decryption Active
+                </p>
+              </div>
+            </div>
+            <div
+              className={`flex items-center gap-3 px-4 py-2 rounded-xl border ${
+                processStep === "complete"
+                  ? "bg-emerald-500/10 border-emerald-500/50 text-emerald-400"
+                  : "bg-blue-500/10 border-blue-500/50 text-blue-400"
+              }`}
+            >
+              <LockOpenIcon fontSize="small" />
+              <span className="text-xs font-black uppercase tracking-tighter">
+                {processStep === "complete" ? "Unlocked" : "Encrypted"}
+              </span>
+            </div>
           </div>
-        )}
 
-        {decryptedData && (
-          <div className="bg-green-50 p-4 rounded-lg border border-green-300 space-y-3">
-            <h4 className="font-semibold text-green-700 text-lg">
-              Decryption Successful!
-            </h4>
-
-            <label className="block text-sm font-medium text-gray-700">
-              Decrypted Vector Data (showing first 10 values):
-            </label>
-            <code className="block whitespace-pre-wrap text-sm text-gray-800 bg-white p-3 rounded border font-mono">
-              [
-              {decryptedData
-                .slice(0, 10)
-                .map((n) => n.toFixed(4))
-                .join(", ")}
-              {decryptedData.length > 10 ? ", ..." : ""}]
-            </code>
-            <p className="text-xs text-gray-600">
-              Total Decrypted Vector Size: **{decryptedData.length}**
+          {/* Progress Section */}
+          <div className="px-8 pt-8">
+            <div className="flex justify-between text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3">
+              <span>System Sequence</span>
+              <span>
+                {processStep === "complete" ? "100%" : "Processing..."}
+              </span>
+            </div>
+            <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
+              <div
+                className={`h-full transition-all duration-1000 ease-out ${
+                  processStep === "complete" ? "bg-emerald-500" : "bg-blue-600"
+                }`}
+                style={{
+                  width:
+                    processStep === "complete"
+                      ? "100%"
+                      : processStep === "reconstructing"
+                      ? "75%"
+                      : processStep === "decrypting"
+                      ? "50%"
+                      : "25%",
+                }}
+              />
+            </div>
+            <p className="text-xs font-bold text-slate-500 mt-3 flex items-center gap-2">
+              {processStep !== "complete" && (
+                <AutorenewIcon
+                  className="animate-spin text-blue-600"
+                  sx={{ fontSize: 14 }}
+                />
+              )}
+              {processStep === "complete" && (
+                <CheckCircleOutlineIcon
+                  className="text-emerald-500"
+                  sx={{ fontSize: 14 }}
+                />
+              )}
+              <span className="uppercase">{processStep}:</span>{" "}
+              <span className="text-slate-900 font-mono capitalize">
+                {processStep === "fetching"
+                  ? "Downloading Ciphertext"
+                  : processStep === "decrypting"
+                  ? "Solving CKKS Polynomials"
+                  : "Reconstructing Original Buffer"}
+              </span>
             </p>
           </div>
-        )}
+
+          {/* Main Display Area */}
+          <div className="p-8">
+            <div className="min-h-[350px] bg-slate-50 rounded-[2rem] border border-slate-200 flex flex-col items-center justify-center p-6 relative overflow-hidden">
+              <div className="absolute inset-0 opacity-[0.03] pointer-events-none font-mono text-[8px] break-all p-4 leading-tight">
+                {record?.ciphertextBase64.slice(0, 2000)}
+              </div>
+
+              {processStep !== "complete" ? (
+                <div className="text-center z-10">
+                  <div className="w-16 h-16 bg-white rounded-full shadow-lg flex items-center justify-center mb-4 mx-auto">
+                    <InsertDriveFileIcon
+                      className="text-slate-300 animate-pulse"
+                      fontSize="large"
+                    />
+                  </div>
+                  <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">
+                    Awaiting HE Reveal
+                  </p>
+                </div>
+              ) : (
+                <div className="w-full z-10">
+                  {decryptedResult?.type === "image" && (
+                    <div className="flex flex-col items-center gap-6">
+                      <div className="p-2 bg-white rounded-2xl shadow-2xl border border-slate-200">
+                        <canvas
+                          ref={canvasRef}
+                          width={26}
+                          height={26}
+                          className="w-64 h-64 rounded-lg bg-black"
+                          style={{
+                            imageRendering: "pixelated", // For Chrome/Edge
+                          }}
+                        />
+                      </div>
+
+                      <button
+                        onClick={downloadDecryptedImage}
+                        className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white text-xs font-bold rounded-xl hover:bg-slate-800 transition-all shadow-lg active:scale-95"
+                      >
+                        <InsertDriveFileIcon sx={{ fontSize: 16 }} />
+                        EXPORT AS PNG
+                      </button>
+                    </div>
+                  )}
+
+                  {decryptedResult?.type === "text" && (
+                    <div className="w-full max-w-lg mx-auto bg-white p-8 rounded-2xl border border-slate-200 shadow-xl">
+                      <p className="text-slate-800 font-medium leading-relaxed">
+                        {decryptedResult.content}
+                      </p>
+                    </div>
+                  )}
+
+                  {decryptedResult?.type === "audio" && (
+                    <div className="w-full max-w-md mx-auto bg-slate-900 p-8 rounded-3xl shadow-2xl text-white">
+                      <div className="flex items-end justify-center gap-0.5 h-24 mb-6">
+                        {Array.from(decryptedResult.content)
+                          .slice(0, 40)
+                          .map((val: any, i: number) => (
+                            <div
+                              key={i}
+                              className="w-2 bg-blue-500 rounded-full"
+                              style={{
+                                height: `${Math.max(5, Math.abs(val) * 100)}%`,
+                                opacity: 0.3 + i / 40,
+                              }}
+                            />
+                          ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Footer Stats */}
+          <div className="grid grid-cols-2 md:grid-cols-4 border-t border-slate-100 divide-x divide-slate-100">
+            {stats.map((stat, i) => (
+              <div key={i} className="p-6 text-center">
+                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">
+                  {stat.label}
+                </p>
+                <p
+                  className={`text-sm font-bold uppercase ${
+                    stat.color || "text-slate-700"
+                  }`}
+                >
+                  {stat.value}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -7,7 +7,6 @@ import * as Yup from "yup";
 import type { RegisterForm } from "../types/userType";
 import { useMutation } from "@tanstack/react-query";
 import { RegisterAPI } from "../API/userServices";
-import RegisterImage from "../assets/Register.jpeg";
 import { InputField } from "../ui/InputUI";
 import { ButtonUI } from "../ui/ButtonUI";
 import { useNavigate } from "react-router-dom";
@@ -49,15 +48,15 @@ function Register() {
       mutateAsync(values)
         .then((data) => {
           console.log(data);
-          navigate("/VerifyEmail");
+          navigate("/Verify");
           formik.resetForm();
         })
         .catch((err) => console.log(err));
     },
   });
   return (
-    <div className="flex justify-center items-center h-[100vh] w-full bg-gray-100">
-      <div className="w-full md:w-1/2 h-[100vh] flex items-center gap-3 flex-col px-4 lg:px-[100px]">
+    <div className="flex justify-center items-center h-screen w-full bg-gray-100">
+      <div className="w-full md:w-1/2 h-screen flex items-center gap-3 flex-col px-4 lg:px-[100px]">
         <p className="text-blue-950 text-center text-3xl font-bold">Register</p>
         <p className="text-gray-400 text-center text-sm">
           Fill in the details to Register
@@ -118,11 +117,11 @@ function Register() {
         </form>
         {/* the dividing line before and after login with */}
         <div className="w-full flex items-center justify-center my-1">
-          <div className="flex-grow border-t border-gray-300"></div>
+          <div className="grow border-t border-gray-300"></div>
           <span className="mx-4 text-sm text-gray-500 whitespace-nowrap">
             Or Register With
           </span>
-          <div className="flex-grow border-t border-gray-300"></div>
+          <div className="grow border-t border-gray-300"></div>
         </div>
         <div className="flex gap-3 w-full py-1">
           <Button
@@ -151,13 +150,6 @@ function Register() {
             Login
           </Link>
         </div>
-      </div>
-      <div className="hidden md:block w-1/2 h-[100vh]">
-        <img
-          src={RegisterImage}
-          alt="Login image"
-          className="w-full h-full object-cover"
-        />
       </div>
     </div>
   );

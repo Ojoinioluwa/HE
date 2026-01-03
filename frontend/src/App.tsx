@@ -7,16 +7,16 @@ import {
   Route,
   Navigate,
   useParams,
-  Router,
 } from "react-router-dom";
 import { useAppSelector } from "./redux/slice/hook.ts"; // Import the typed selector hook
 // Import your components
 import LoginPage from "./Components/LoginPage.tsx";
 import RegistrationPage from "./Components/RegistrationPage";
-import DataUploadPage from "./Components/DataUploadPage";
 import DataDashboard from "./Components/DataDashboard";
 import DecryptionPage from "./Components/DecryptionPage";
 import ComputationDashboard from "./Components/ComputationDashboard";
+import VerifyEmail from "./Components/VerifyEmail.tsx";
+import DataUploadPage from "./Components/DataUploadPage.tsx";
 
 // Helper component to guard private routes
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({
@@ -35,24 +35,18 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({
 // Wrapper for DecryptionPage to handle URL parameters
 const DecryptionPageWrapper: React.FC = () => {
   // Get the dynamic URL parameter (dataId)
-  const { dataId } = useParams<{ dataId: string }>();
+  const { id } = useParams<{ id: string }>();
 
   // Read required state from Redux
   const token = useAppSelector((state) => state.auth.token);
   const secretKeyBase64 = useAppSelector((state) => state.auth.secretKeyBase64);
 
-  if (!dataId || !token || !secretKeyBase64) {
+  if (!id || !token || !secretKeyBase64) {
     // Handle cases where data is missing (e.g., direct navigation without key)
     return <Navigate to="/dashboard" replace />;
   }
 
-  return (
-    <DecryptionPage
-      token={token}
-      secretKeyBase64={secretKeyBase64}
-      dataId={dataId}
-    />
-  );
+  return <DecryptionPage secretKeyBase64={secretKeyBase64} />;
 };
 
 const App: React.FC = () => {
@@ -64,14 +58,9 @@ const App: React.FC = () => {
       <Routes>
         {/* 1. Public Routes (Auth) */}
         {/* LoginPage and RegistrationPage will dispatch the setAuth action directly */}
-        <Route
-          path="/login"
-          element={<LoginPage onSwitchToRegister={() => {}} />}
-        />
-        <Route
-          path="/register"
-          element={<RegistrationPage onSwitchToLogin={() => {}} />}
-        />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegistrationPage />} />
+        <Route path="/verify" element={<VerifyEmail />} />
 
         {/* 2. Protected Routes (HE Functionality) */}
         <Route
@@ -102,7 +91,7 @@ const App: React.FC = () => {
         />
 
         <Route
-          path="/decrypt/:dataId"
+          path="/decrypt/:id"
           element={
             <ProtectedRoute>
               <DecryptionPageWrapper />
@@ -129,22 +118,16 @@ export default App;
 // like useParams and Redux selectors without being inside a Route context.
 
 const DataUploadPageWrapper: React.FC = () => {
-  const token = useAppSelector((state) => state.auth.token);
-  return <DataUploadPage token={token!} />;
+  return <DataUploadPage />;
 };
 
 const DataDashboardWrapper: React.FC = () => {
-  const token = useAppSelector((state) => state.auth.token);
-  // In DataDashboard, we need the actual navigation function for decryption.
-  // Assuming navigation happens via useNavigate and the path is constructed there.
   const handleViewCiphertext = (dataId: string) => {
     // Logic to navigate, e.g., using useNavigate hook from 'react-router-dom'
     console.log(`Navigating to /decrypt/${dataId}`);
     // This logic will be fully implemented inside DataDashboard.tsx
   };
-  return (
-    <DataDashboard token={token!} onViewCiphertext={handleViewCiphertext} />
-  );
+  return <DataDashboard onViewCiphertext={handleViewCiphertext} />;
 };
 
 const ComputationDashboardWrapper: React.FC = () => {

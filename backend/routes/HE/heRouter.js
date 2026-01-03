@@ -14,12 +14,14 @@ import heController from "../../controller/he.controller.js";
 
 
 // HE System Initialization and Data Management Routes
-heRouter.post('/init', heController.initializeHE); // 👈 Authentication REMOVED
-heRouter.post('/data/upload', heController.uploadCiphertext); // 👈 Authentication REMOVED
+heRouter.post('/init', isAuthenticated, heController.initializeHE);
+heRouter.post('/data/upload', isAuthenticated, heController.uploadCiphertext);
+heRouter.get('/data/my-uploads', isAuthenticated, heController.getUserCiphertexts);
+heRouter.get('/data/getCipherByid/:id', isAuthenticated, heController.getCiphertextById);
 
 // HE Computation Routes
-heRouter.post('/compute/sum', heController.computeSum); // 👈 Authentication REMOVED
-heRouter.post('/compute/linear-regression', heController.computeLinearRegression); // 👈 Authentication REMOVED
+heRouter.post('/compute/sum', isAuthenticated, heController.computeSum);
+heRouter.post('/compute/linear-regression', heController.computeLinearRegression);
 
 
 

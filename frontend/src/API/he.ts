@@ -1,6 +1,9 @@
 // src/api/he.ts
 
-const API_BASE_URL = 'http://localhost:8000/api/v1/he';
+import type { CiphertextRecord } from "../types/heTypes";
+import { getUserFromStorage } from "../utils/getUserFromStorage";
+
+const API_BASE_URL = 'http://localhost:8888/api/v1/he';
 
 // Helper function to get the auth header
 const getAuthHeaders = (token: string) => ({
@@ -22,6 +25,27 @@ export interface UploadPayload {
     metadata?: any;
 }
 
+export const getMyUploads = async () => {
+    const user = await getUserFromStorage();
+    const token = user?.token;
+
+    if (!token) throw new Error("No authentication token found");
+
+    const response = await fetch(`${API_BASE_URL}/data/my-uploads`, {
+        method: 'GET',
+        headers: getAuthHeaders(token)
+    });
+
+    const data = await response.json();
+
+
+    if (!response.ok) {
+        throw new Error(data.error || 'Failed to fetch uploads.');
+    }
+
+    return data.uploads; // Returns the array of ciphertext objects
+};
+
 // 1. Initialize HE Context
 export const initializeHEContext = async (token: string, payload: InitPayload) => {
     const response = await fetch(`${API_BASE_URL}/init`, {
@@ -37,10 +61,13 @@ export const initializeHEContext = async (token: string, payload: InitPayload) =
 };
 
 // 2. Upload Encrypted Data
-export const uploadCiphertext = async (token: string, payload: UploadPayload) => {
+export const uploadCiphertext = async (payload: UploadPayload) => {
+    const user = await getUserFromStorage();
+
+    const token = user?.token;
     const response = await fetch(`${API_BASE_URL}/data/upload`, {
         method: 'POST',
-        headers: getAuthHeaders(token),
+        headers: getAuthHeaders(token!),
         body: JSON.stringify(payload),
     });
     const data = await response.json();
@@ -53,7 +80,7 @@ export const uploadCiphertext = async (token: string, payload: UploadPayload) =>
 
 // 3. Fetch list of uploaded Ciphertexts
 export interface CiphertextSummary {
-    id: string; // MongoDB ObjectId
+    _id: string; // MongoDB ObjectId
     dataId: string; // The user-defined unique ID (e.g., 'Q4_Sales_2025')
     scheme: string;
     ciphertextLength: number;
@@ -61,14 +88,20 @@ export interface CiphertextSummary {
     metadata: any;
 }
 
-export const fetchCiphertextList = async (token: string): Promise<CiphertextSummary[]> => {
+
+
+
+export const fetchCiphertextList = async (): Promise<CiphertextSummary[]> => {
+    const user = await getUserFromStorage();
+    const token = user?.token;
     const response = await fetch(`${API_BASE_URL}/data/list`, {
         method: 'GET',
-        headers: getAuthHeaders(token),
+        headers: getAuthHeaders(token!),
     });
 
     const data = await response.json();
 
+    console.log(data)
     if (!response.ok) {
         throw new Error(data.details || data.error || 'Failed to fetch ciphertext list.');
     }
@@ -79,14 +112,17 @@ export const fetchCiphertextList = async (token: string): Promise<CiphertextSumm
 
 
 // 4. Fetch single Ciphertext content (Base64 string)
-export const fetchCiphertextContent = async (token: string, dataId: string): Promise<{ ciphertextBase64: string }> => {
-    const API_BASE_URL = '/api/v1/he'; // Ensure this is defined or globally accessible
+export const fetchCiphertextContent = async (dataId: string): Promise<{ ciphertextBase64: string }> => {
+
+    const user = await getUserFromStorage();
+    const token = user?.token;
+
     const getAuthHeaders = (t: string) => ({ 'Content-Type': 'application/json', 'Authorization': `Bearer ${t}` });
 
     // Assuming your backend has a GET endpoint like /api/v1/he/data/Q4_Sales_2025
     const response = await fetch(`${API_BASE_URL}/data/${dataId}`, {
         method: 'GET',
-        headers: getAuthHeaders(token),
+        headers: getAuthHeaders(token!),
     });
 
     const data = await response.json();
@@ -99,6 +135,27 @@ export const fetchCiphertextContent = async (token: string, dataId: string): Pro
 };
 
 
+export const getCiphertextById = async (id: string): Promise<CiphertextRecord> => {
+    const user = await getUserFromStorage();
+    const token = user?.token;
+    const getAuthHeaders = (t: string) => ({ 'Content-Type': 'application/json', 'Authorization': `Bearer ${t}` });
+
+    console.log("I was here")
+
+    // Assuming your backend has a GET endpoint like /api/v1/he/data/Q4_Sales_2025
+    const response = await fetch(`${API_BASE_URL}/data/getCipherByid/${id}`, {
+        method: 'GET',
+        headers: getAuthHeaders(token!),
+    });
+
+    const data = await response.json();
+    console.log(data)
+
+    if (!response.ok) {
+        throw new Error(data.details || data.error || `Failed to fetch ciphertext for ID: ${id}`);
+    }
+    return data;
+};
 
 
 interface ComputationRequest {
