@@ -9,9 +9,10 @@ const encoders: { ckks?: SEAL.CKKSEncoder } = {};
 export const HE_PARAMS = {
     scheme: 'ckks',
     ckks: {
-        polyModulusDegree: 8192, // Stick to 8192 for images
-        coeffModulusBitSizes: [40, 40, 40, 40],
-        scale: Math.pow(2, 30)
+        polyModulusDegree: 16384, // Changed from 32768 or 8192
+        // Bit sizes for 16384 usually total around 400-440 bits for security
+        coeffModulusBitSizes: [60, 40, 40, 40, 40, 60],
+        scale: Math.pow(2, 40)
     }
 };
 
@@ -65,7 +66,7 @@ export async function createAndWrapKeys(password: string, email: string) {
 
     // 1. Force a specific compression mode. 
     // "none" is the most compatible and avoids the 'value' undefined error.
-    const compression = seal.ComprModeType.none;
+    const compression = seal.ComprModeType.zstd;
 
     // 2. Pass the compression mode explicitly to every call
     const secretKeyBase64 = secretKey.saveToBase64(compression);

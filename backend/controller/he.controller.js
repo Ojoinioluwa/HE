@@ -16,35 +16,51 @@ const { loadContext, deserialize, serialize } = heConfig
 
 const initializeHE = async (req, res) => {
     try {
-
         const { scheme, params, publicKeyBase64, evaluationKeysBase64 } = req.body;
-
-        // TODO: make the changes
         const userId = req.user._id.toString();
 
-        // 1. Load the SEAL Context on the Server using the imported helper
+        // 1. Load the SEAL Context
         loadContext(params);
 
-        // 2. Store keys and parameters in MongoDB
-        const newKey = await KeyModel.create({
-            userId,
-            scheme,
-            encryptionParameters: params,
-            publicKeyBase64,
-            evaluationKeysBase64
-        });
+        // 2. CHECK KEY SIZE BEFORE SAVING
+        // Calculate approximate size in MB
+        const keySizeInBytes = evaluationKeysBase64 ? (evaluationKeysBase64.length * (3 / 4)) : 0;
+        const keySizeInMB = keySizeInBytes / (1024 * 1024);
 
-        // 3. Keep the deserialized keys in server memory for fast access (keyCollection map)
+        let savedKeyId;
+
+        if (keySizeInMB > 15) {
+            console.log(`Key size (${keySizeInMB.toFixed(2)}MB) exceeds MongoDB limit. Using memory-only mode for RelinKeys.`);
+
+            // Save everything EXCEPT the massive RelinKeys to the DB
+            const newKey = await KeyModel.create({
+                userId,
+                scheme,
+                encryptionParameters: params,
+                publicKeyBase64,
+                evaluationKeysBase64: "STORED_IN_MEMORY_ONLY" // Placeholder
+            });
+            savedKeyId = newKey._id;
+        } else {
+            // Standard save if it fits
+            const newKey = await KeyModel.create({
+                userId, scheme, encryptionParameters: params, publicKeyBase64, evaluationKeysBase64
+            });
+            savedKeyId = newKey._id;
+        }
+
+        // 3. Keep keys in server memory (THIS IS YOUR LIFELINE)
+        // Even if they don't fit in the DB, the server can use them while it's running
         keyCollection[userId] = {
             publicKey: deserialize(publicKeyBase64, 'PublicKey'),
             evaluationKeys: evaluationKeysBase64 ? deserialize(evaluationKeysBase64, 'RelinKeys') : null,
             params: params
-        }; // NOTE: Need memory cleanup logic for keyCollection if re-init occurs.
+        };
 
-        res.status(201).json({ message: "HE Context initialized and keys stored.", keyId: newKey._id });
+        res.status(201).json({ message: "HE Context initialized.", keyId: savedKeyId });
     } catch (error) {
         console.error('HE Initialization error:', error);
-        res.status(500).json({ error: "Initialization failed. Did the client send correct parameters?", details: error.message });
+        res.status(500).json({ error: "Initialization failed.", details: error.message });
     }
 };
 

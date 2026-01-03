@@ -181,6 +181,7 @@ const userController = {
         try {
             const { publicKey, evaluationKey, params, scheme, wrappedSecretKey } = req.body;
             const userId = req.user._id;
+            console.log(userId)
 
 
 

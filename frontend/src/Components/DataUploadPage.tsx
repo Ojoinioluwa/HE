@@ -12,7 +12,7 @@ import type { UploadPayload } from "../API/he";
 import { imageFileToNormalizedVector } from "../utils/imageProcessing";
 import { toast, Toaster } from "react-hot-toast";
 
-const IMAGE_HE_SIZE = 36;
+const IMAGE_HE_SIZE = 52;
 
 const DataUploadPage: React.FC = () => {
   const { secretKeyBase64 } = useSelector((state: RootState) => state.auth);
@@ -91,7 +91,7 @@ const DataUploadPage: React.FC = () => {
 
       // 2. --- Strict Capacity Validation (For polyModulusDegree: 4096) ---
       // Inside handleUpload in DataUploadPage.tsx
-      const MAX_SLOTS = 4096; // 8192 / 2 = 4096 slots available
+      const MAX_SLOTS = 8192;
 
       if (numericVector.length > MAX_SLOTS) {
         throw new Error(

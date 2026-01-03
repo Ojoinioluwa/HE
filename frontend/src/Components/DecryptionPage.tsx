@@ -46,27 +46,56 @@ const DecryptionPage: React.FC<DecryptionPageProps> = ({ secretKeyBase64 }) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
-    if (!ctx) return;
 
-    const size = 26;
-    const imageData = ctx.createImageData(size, size);
+    // 1. Calculate the real size (now 64x64)
+    const sourceSize = Math.floor(Math.sqrt(vector.length / 3));
+    const displaySize = 512;
 
-    for (let i = 0; i < size * size; i++) {
+    // 2. Create raw pixel buffer
+    const tempCanvas = document.createElement("canvas");
+    tempCanvas.width = sourceSize;
+    tempCanvas.height = sourceSize;
+    const tempCtx = tempCanvas.getContext("2d")!;
+    const imageData = tempCtx.createImageData(sourceSize, sourceSize);
+
+    for (let i = 0; i < sourceSize * sourceSize; i++) {
       const vIdx = i * 3;
-      if (vIdx + 2 >= vector.length) break;
-
-      // Normalization check: Math.round(val * 255)
-      const r = Math.min(255, Math.max(0, Math.round(vector[vIdx] * 255)));
-      const g = Math.min(255, Math.max(0, Math.round(vector[vIdx + 1] * 255)));
-      const b = Math.min(255, Math.max(0, Math.round(vector[vIdx + 2] * 255)));
-
       const canvasIdx = i * 4;
-      imageData.data[canvasIdx + 0] = r;
-      imageData.data[canvasIdx + 1] = g;
-      imageData.data[canvasIdx + 2] = b;
+      // We add a Math.round and clamp to ensure colors are crisp
+      imageData.data[canvasIdx] = Math.max(
+        0,
+        Math.min(255, Math.round(vector[vIdx] * 255))
+      );
+      imageData.data[canvasIdx + 1] = Math.max(
+        0,
+        Math.min(255, Math.round(vector[vIdx + 1] * 255))
+      );
+      imageData.data[canvasIdx + 2] = Math.max(
+        0,
+        Math.min(255, Math.round(vector[vIdx + 2] * 255))
+      );
       imageData.data[canvasIdx + 3] = 255;
     }
-    ctx.putImageData(imageData, 0, 0);
+    tempCtx.putImageData(imageData, 0, 0);
+
+    // 3. Sharp Scaling
+    canvas.width = displaySize;
+    canvas.height = displaySize;
+
+    // Set to FALSE to keep the edges sharp if you want it to look "Exact"
+    ctx.imageSmoothingEnabled = false;
+
+    ctx.drawImage(
+      tempCanvas,
+      0,
+      0,
+      sourceSize,
+      sourceSize,
+      0,
+      0,
+      displaySize,
+      displaySize
+    );
   }, []);
 
   // 3. EFFECT: Watch for completion to draw on Canvas
@@ -276,14 +305,14 @@ const DecryptionPage: React.FC<DecryptionPageProps> = ({ secretKeyBase64 }) => {
                 <div className="w-full z-10">
                   {decryptedResult?.type === "image" && (
                     <div className="flex flex-col items-center gap-6">
-                      <div className="p-2 bg-white rounded-2xl shadow-2xl border border-slate-200">
+                      <div className="p-2 bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
                         <canvas
                           ref={canvasRef}
-                          width={26}
-                          height={26}
-                          className="w-64 h-64 rounded-lg bg-black"
+                          /* Width and Height are set dynamically in renderImage */
+                          className="w-full max-w-[400px] aspect-square rounded-lg bg-slate-900"
                           style={{
-                            imageRendering: "pixelated", // For Chrome/Edge
+                            display: "block",
+                            imageRendering: "auto", // Change from pixelated to auto
                           }}
                         />
                       </div>
@@ -293,7 +322,7 @@ const DecryptionPage: React.FC<DecryptionPageProps> = ({ secretKeyBase64 }) => {
                         className="flex items-center gap-2 px-6 py-3 bg-slate-900 text-white text-xs font-bold rounded-xl hover:bg-slate-800 transition-all shadow-lg active:scale-95"
                       >
                         <InsertDriveFileIcon sx={{ fontSize: 16 }} />
-                        EXPORT AS PNG
+                        EXPORT HIGH-RES PNG
                       </button>
                     </div>
                   )}

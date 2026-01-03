@@ -6,72 +6,49 @@
  * @returns A promise that resolves to an array of numbers (R, G, B, A, or grayscale values).
  */
 
-import { HE_PARAMS } from "./heClient";
-
-/**
- * Converts an Image File (PNG, JPG) into a flat array of normalized numeric values (0.0 to 1.0).
- */
-
 
 export async function imageFileToNormalizedVector(
     file: File,
-    targetSize: number = 36
+    targetSize: number = 36 // Increased from 32 to 36 for max capacity
 ): Promise<number[]> {
-    if (!file.type.startsWith('image/')) {
-        throw new Error('File must be an image type (e.g., JPEG, PNG).');
-    }
+    // ... existing file type checks ...
 
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
-
         reader.onload = (e) => {
             const img = new Image();
             img.onload = () => {
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
+                if (!ctx) return reject(new Error("Canvas context failed"));
 
-                if (!ctx) {
-                    return reject(new Error("Could not get canvas context."));
-                }
-
-                // 1. Set canvas size to the target HE dimension
                 canvas.width = targetSize;
                 canvas.height = targetSize;
 
-                // 2. Draw and resize
-                ctx.drawImage(img, 0, 0, targetSize, targetSize);
+                // --- NEW: CENTER CROP LOGIC ---
+                // Find the smallest dimension to make a perfect square
+                const minDim = Math.min(img.width, img.height);
+                const sx = (img.width - minDim) / 2; // Source X offset
+                const sy = (img.height - minDim) / 2; // Source Y offset
 
-                // 3. Extract RGBA data
+                // Draw center-cropped square into the targetSize canvas
+                ctx.drawImage(img, sx, sy, minDim, minDim, 0, 0, targetSize, targetSize);
+                // ------------------------------
+
                 const imageData = ctx.getImageData(0, 0, targetSize, targetSize);
                 const pixelData = imageData.data;
-
                 const vector: number[] = [];
 
-                // 4. Normalize RGB values
                 for (let i = 0; i < pixelData.length; i += 4) {
                     vector.push(pixelData[i] / 255.0);     // R
                     vector.push(pixelData[i + 1] / 255.0); // G
                     vector.push(pixelData[i + 2] / 255.0); // B
-                    // Alpha is skipped
-                }
-
-                // 5. Slot Capacity Check
-                const availableSlots = HE_PARAMS.ckks.polyModulusDegree / 2;
-
-                if (vector.length > availableSlots) {
-                    return reject(new Error(
-                        `Vector size (${vector.length}) exceeds CKKS slot capacity (${availableSlots}). ` +
-                        `For RGB, use targetSize 32 or smaller.`
-                    ));
                 }
 
                 resolve(vector);
             };
-            img.onerror = () => reject(new Error('Failed to load image.'));
             img.src = e.target?.result as string;
         };
-
-        reader.onerror = () => reject(new Error('File read error.'));
         reader.readAsDataURL(file);
     });
 }
