@@ -74,7 +74,7 @@ const LoginPage: React.FC = () => {
             token: data.token,
             email: data.user.email,
             firstName: data.user.firstName,
-          })
+          }),
         );
 
         // 2. Start HE Engine
@@ -89,13 +89,13 @@ const LoginPage: React.FC = () => {
           finalSecretKeyBase64 = await unwrapAndLoadKeys(
             data.user.heConfig.wrappedSecretKey,
             values.password,
-            values.email
+            values.email,
           );
         } else {
           // First Time User: Generate new keys
           const { keysAndParams, wrappedSecretKey } = await createAndWrapKeys(
             values.password,
-            values.email
+            values.email,
           );
 
           // MAPPING: Ensure field names match your MongoDB schema exactly
@@ -115,7 +115,7 @@ const LoginPage: React.FC = () => {
           finalSecretKeyBase64 = await unwrapAndLoadKeys(
             wrappedSecretKey,
             values.password,
-            values.email
+            values.email,
           );
         }
 
@@ -130,7 +130,7 @@ const LoginPage: React.FC = () => {
         console.error("Login/HE Error:", err);
         toast.error(
           err.response?.data?.message ||
-            "Secure Login failed. Verify credentials."
+            "Secure Login failed. Verify credentials.",
         );
       } finally {
         setIsHeProcessing(false);
@@ -213,8 +213,8 @@ const LoginPage: React.FC = () => {
               {loginPending
                 ? "Checking Account..."
                 : isHeProcessing
-                ? "Decrypting Secure Session..."
-                : "Sign In"}
+                  ? "Decrypting Secure Session..."
+                  : "Sign In"}
             </Button>
 
             <Box sx={{ textAlign: "center", mb: 2 }}>

@@ -23,7 +23,7 @@ const PORT = process.env.PORT || 8888;
 
 const allowedOrigin =
     process.env.NODE_ENV === "production"
-        ? "https://he.com"
+        ? "https://he-frontend.onrender.com"
         : "http://localhost:5173";
 
 app.use(

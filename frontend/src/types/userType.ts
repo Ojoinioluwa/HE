@@ -3,7 +3,7 @@ export type User = {
     lastName: string;
     email: string;
     password: string;
-    heConfig: HEConfig;
+    heConfig?: HEConfig;
     phoneNumber: string;
 }
 
@@ -21,6 +21,7 @@ export interface HEConfig {
 
 export type RegisterForm = User & {
     confirmPassword: string;
+
 };
 
 export type LocalSorageInfo = {

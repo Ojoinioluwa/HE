@@ -133,6 +133,6 @@ const DataDashboardWrapper: React.FC = () => {
 };
 
 const ComputationDashboardWrapper: React.FC = () => {
-  const token = useAppSelector((state) => state.auth.token);
-  return <ComputationDashboard token={token!} />;
+  // const token = useAppSelector((state) => state.auth.token);
+  return <ComputationDashboard />;
 };

@@ -42,7 +42,7 @@ const ComputationPage: React.FC = () => {
     // Security check: ensure same scheme (CKKS/BFV) across the selection batch
     if (activeConstraint && record.scheme !== activeConstraint.scheme) {
       toast.error(
-        `Scheme Mismatch: Cannot mix ${record.scheme} with ${activeConstraint.scheme}`
+        `Scheme Mismatch: Cannot mix ${record.scheme} with ${activeConstraint.scheme}`,
       );
       return;
     }
@@ -60,7 +60,7 @@ const ComputationPage: React.FC = () => {
       const result = await executeHomomorphicComputation(
         type,
         selectedIds,
-        activeConstraint?.scheme || "ckks"
+        activeConstraint?.scheme || "ckks",
       );
 
       if (result.success) {
@@ -122,8 +122,8 @@ const ComputationPage: React.FC = () => {
                       isSelected
                         ? "bg-white border-blue-500 shadow-xl ring-4 ring-blue-50"
                         : isDisabled
-                        ? "bg-slate-100 opacity-50 cursor-not-allowed border-transparent"
-                        : "bg-white border-transparent hover:border-slate-200 shadow-sm"
+                          ? "bg-slate-100 opacity-50 cursor-not-allowed border-transparent"
+                          : "bg-white border-transparent hover:border-slate-200 shadow-sm"
                     }`}
                   >
                     <div className="flex justify-between items-start mb-4">
