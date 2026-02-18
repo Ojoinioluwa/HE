@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import UserVerification from "../models/UserVerification.js";
 
 // Initialize Transporter
-const transporter = nodemailer.createTransport({
+export const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
     user: process.env.AUTH_EMAIL,     // Your gmail: example@gmail.com
