@@ -10,7 +10,7 @@ import errorhandler from "./middlewares/errorHandler.js";
 import userRouter from "./routes/user/userRouter.js";
 import limiter from "./middlewares/rateLimiter.js";
 import helmet from "helmet";
-import heRouter from "./routes/he/heRouter.js";
+import heRouter from "./routes/HE/heRouter.js";
 
 // --- Globals Holder ---
 export const sealGlobals = {
