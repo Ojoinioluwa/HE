@@ -2,10 +2,10 @@ import SEAL from 'node-seal';
 import { getCiphertextById, uploadCiphertext } from "../API/he";
 
 // Global objects for the client session
-let seal: SEAL = null as any;
-let encryptor: SEAL.Encryptor | null = null;
-let context: SEAL.Context | null = null;
-const encoders: { ckks?: SEAL.CKKSEncoder } = {};
+let seal: any = null;
+let encryptor: any = null;
+let context: any = null;
+const encoders: { ckks?: any } = {};
 
 export const HE_PARAMS = {
     scheme: 'ckks',
