@@ -6,13 +6,15 @@ import UserVerification from "../models/UserVerification.js";
 export const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
   port: 465,
-  secure: true, // Use SSL
+  secure: true, // Use SSL for port 465
   auth: {
     user: process.env.AUTH_EMAIL,
     pass: process.env.AUTH_PASSWORD,
   },
-  connectionTimeout: 10000, // Wait 10 seconds before giving up
+  // These three settings are the "magic fix" for cloud timeouts:
+  connectionTimeout: 10000, // 10 seconds
   greetingTimeout: 10000,
+  socketTimeout: 10000,
 });
 
 
