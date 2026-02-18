@@ -1,6 +1,7 @@
 // Import global SEAL objects exported from the global.heState.js file
+import { getHESession } from "../global/heState.js";
 
-import { seal, context, evaluator, encoders, keyCollection } from "../global/heState.js";
+const { seal, context, encoders } = getHESession
 
 // --- SEAL Helper Functions ---
 
@@ -85,17 +86,17 @@ const deserialize = function (base64String, type) {
         switch (type) {
             case 'PublicKey': {
                 const pk = seal.PublicKey();
-                pk.load(context, buffer);
+                pk.loadFromBase64(context, buffer);
                 return pk;
             }
             case 'RelinKeys': {
                 const rlk = seal.RelinKeys();
-                rlk.load(context, buffer);
+                rlk.loadFromBase64(context, buffer);
                 return rlk;
             }
             case 'Ciphertext': {
                 const ct = seal.Ciphertext();
-                ct.load(context, buffer);
+                ct.loadFromBase64(context, buffer);
                 return ct;
             }
             // Add other types (e.g., GaloisKeys) as needed

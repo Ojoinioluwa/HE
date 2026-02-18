@@ -17,6 +17,7 @@ import DecryptionPage from "./Components/DecryptionPage";
 import ComputationDashboard from "./Components/ComputationDashboard";
 import VerifyEmail from "./Components/VerifyEmail.tsx";
 import DataUploadPage from "./Components/DataUploadPage.tsx";
+import ComputationPage from "./Components/ComputationDashboard";
 
 // Helper component to guard private routes
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({
@@ -61,6 +62,7 @@ const App: React.FC = () => {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegistrationPage />} />
         <Route path="/verify" element={<VerifyEmail />} />
+        <Route path="/computeData" element={<ComputationPage />} />
 
         {/* 2. Protected Routes (HE Functionality) */}
         <Route

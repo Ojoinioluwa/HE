@@ -79,90 +79,111 @@ const DataDashboard: React.FC<DataDashboardProps> = ({ onViewCiphertext }) => {
           </div>
 
           <button
-            onClick={() => refetch()}
+            onClick={() => navigate("/upload")}
             className="flex items-center justify-center gap-2 bg-white border border-slate-200 px-4 py-2.5 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-all active:scale-95"
           >
-            <SyncIcon sx={{ fontSize: 18 }} /> Refresh
+            <SyncIcon sx={{ fontSize: 18 }} /> upload
+          </button>
+          <button
+            onClick={() => navigate("/computeData")}
+            className="flex items-center justify-center gap-2 bg-white border border-slate-200 px-4 py-2.5 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-all active:scale-95"
+          >
+            <SyncIcon sx={{ fontSize: 18 }} /> Compute
           </button>
         </div>
 
         {/* List or Empty State */}
-        {ciphertexts?.map((ct) => (
-          <div
-            key={ct._id}
-            onClick={() => onViewCiphertext(ct.dataId)}
-            className="group bg-white border border-slate-200 p-4 sm:p-5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-blue-500 hover:shadow-xl hover:shadow-blue-900/5 transition-all cursor-pointer"
-          >
-            <div className="flex items-center gap-5">
-              {/* Icon based on metadata type */}
-              <div className="w-14 h-14 shrink-0 flex items-center justify-center bg-slate-100 text-slate-500 rounded-2xl group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">
-                {ct.metadata?.type === "image" ? (
-                  <ImageIcon sx={{ fontSize: 28 }} />
-                ) : (
-                  <DescriptionIcon sx={{ fontSize: 28 }} />
-                )}
-              </div>
 
-              <div className="flex-1 min-w-0">
-                <h3 className="text-lg font-bold text-slate-900 truncate">
-                  {ct.dataId}
-                </h3>
+        {ciphertexts?.map((ct) => {
+          // 1. Check if it's an image with a high-res Cloudinary link
+          const hasCloudinary =
+            ct.metadata?.type === "image" && ct.metadata?.displayUrl;
 
-                {/* METADATA INFO ROW */}
-                <div className="flex flex-wrap items-center gap-2 mt-2">
-                  {/* File Type Tag */}
-                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 font-black uppercase tracking-wider border border-blue-100">
-                    {ct.metadata?.type || "Data"}
-                  </span>
-
-                  {/* Conditional Detail: Resolution for Images, Char Count for Text */}
-                  {ct.metadata?.type === "image" ? (
-                    <span className="text-xs text-slate-500 font-medium">
-                      {ct.metadata?.resolution || "32x32"} •{" "}
-                      {ct.metadata?.channels || "RGB"}
-                    </span>
-                  ) : (
-                    <span className="text-xs text-slate-500 font-medium">
-                      {ct.metadata?.charCount || "0"} characters
-                    </span>
-                  )}
+          return (
+            <div
+              key={ct._id}
+              onClick={() => onViewCiphertext(ct.dataId)}
+              className="group bg-white border border-slate-200 p-4 sm:p-5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-blue-500 hover:shadow-xl hover:shadow-blue-900/5 transition-all cursor-pointer mb-4"
+            >
+              <div className="flex items-center gap-5">
+                {/* ICON OR CLOUDINARY PREVIEW */}
+                <div className="w-16 h-16 shrink-0 flex items-center justify-center bg-slate-100 overflow-hidden text-slate-500 rounded-2xl group-hover:bg-blue-50 group-hover:text-blue-600 transition-all border border-slate-100">
+                  <>
+                    {ct.metadata?.type === "image" ? (
+                      <ImageIcon sx={{ fontSize: 28 }} />
+                    ) : (
+                      <DescriptionIcon sx={{ fontSize: 28 }} />
+                    )}
+                  </>
                 </div>
 
-                {/* SYSTEM INFO ROW */}
-                <div className="flex flex-wrap items-center gap-x-3 mt-1 text-xs text-slate-400 font-medium">
-                  <span className="flex items-center gap-1 uppercase font-bold text-slate-500">
-                    {ct.scheme}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <AccessTimeIcon sx={{ fontSize: 14 }} />
-                    {ct.metadata?.uploadedAt
-                      ? new Date(ct.metadata.uploadedAt).toLocaleDateString()
-                      : new Date().toLocaleDateString()}
-                  </span>
-                  <span className="font-bold text-slate-600">
-                    {ct.metadata?.sizeBytes
-                      ? `${(ct.metadata.sizeBytes / 1024).toFixed(2)} KB`
-                      : `${((ct.ciphertextLength || 0) / 1024).toFixed(2)} KB`}
-                  </span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-lg font-bold text-slate-900 truncate">
+                      {ct.dataId}
+                    </h3>
+                    {/* Added a 'Synced' badge for Cloudinary files */}
+                    {hasCloudinary && (
+                      <span className="text-[9px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-bold">
+                        HD
+                      </span>
+                    )}
+                  </div>
+
+                  {/* METADATA INFO ROW */}
+                  <div className="flex flex-wrap items-center gap-2 mt-1">
+                    <span className="text-[10px] px-2 py-0.5 rounded-md bg-blue-50 text-blue-700 font-black uppercase tracking-wider border border-blue-100">
+                      {ct.metadata?.type || "Data"}
+                    </span>
+
+                    {ct.metadata?.type === "image" ? (
+                      <span className="text-xs text-slate-500 font-medium">
+                        {ct.metadata?.resolution || "36x36"} •{" "}
+                        {ct.metadata?.channels || "RGB"}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-slate-500 font-medium">
+                        {ct.metadata?.charCount || "0"} characters
+                      </span>
+                    )}
+                  </div>
+
+                  {/* SYSTEM INFO ROW */}
+                  <div className="flex flex-wrap items-center gap-x-3 mt-1 text-xs text-slate-400 font-medium">
+                    <span className="uppercase font-bold text-slate-500">
+                      {ct.scheme}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <AccessTimeIcon sx={{ fontSize: 14 }} />
+                      {ct.metadata?.uploadedAt
+                        ? new Date(ct.metadata.uploadedAt).toLocaleDateString()
+                        : "N/A"}
+                    </span>
+                    <span className="font-bold text-slate-600">
+                      {((ct.metadata?.sizeBytes || 0) / 1024).toFixed(2)} KB
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/* CTA Section */}
-            <div className="flex items-center justify-between sm:justify-end gap-3 pt-4 sm:pt-0 border-t sm:border-0 border-slate-50">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation(); // Prevents double-triggering if the parent div also has an onClick
-                  navigate(`/decrypt/${ct._id}`); // Redirects to the decryption page with the DB ID
-                }}
-                className="flex items-center gap-2 bg-slate-900 text-white px-6 py-2.5 rounded-xl text-sm font-bold hover:bg-blue-600 transition-all shadow-md shadow-slate-200"
-              >
-                <VisibilityIcon sx={{ fontSize: 18 }} />
-                <span>View & Decrypt</span>
-              </button>
+              {/* CTA Section */}
+              <div className="flex items-center justify-between sm:justify-end gap-3 pt-4 sm:pt-0 border-t sm:border-0 border-slate-50">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/decrypt/${ct._id}`);
+                  }}
+                  className="flex items-center gap-2 bg-slate-900 text-white px-6 py-2.5 rounded-xl text-sm font-bold hover:bg-blue-600 transition-all shadow-md shadow-slate-200"
+                >
+                  <VisibilityIcon sx={{ fontSize: 18 }} />
+                  <span>
+                    {hasCloudinary ? "Analyze Source" : "View Result"}
+                  </span>
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         <div className="mt-12 border-t border-slate-200 pt-6 flex flex-col sm:flex-row justify-between items-center text-[11px] text-slate-400 uppercase font-bold tracking-widest gap-4">
           <p>© 2025 SEAL-JS CLOUD ENVIRONMENT</p>

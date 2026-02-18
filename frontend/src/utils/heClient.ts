@@ -1,4 +1,5 @@
 import SEAL from 'node-seal';
+import { getCiphertextById, uploadCiphertext } from "../API/he";
 
 // Global objects for the client session
 let seal: SEAL = null as any;
@@ -9,11 +10,11 @@ const encoders: { ckks?: SEAL.CKKSEncoder } = {};
 export const HE_PARAMS = {
     scheme: 'ckks',
     ckks: {
-        polyModulusDegree: 16384, // Changed from 32768 or 8192
-        // Bit sizes for 16384 usually total around 400-440 bits for security
-        coeffModulusBitSizes: [60, 40, 40, 40, 40, 60],
-        scale: Math.pow(2, 40)
-    }
+        polyModulusDegree: 8192,
+        // For 8192, total bits must be <= 218 for 128-bit security
+        coeffModulusBitSizes: [50, 30, 30, 30, 50],
+        scale: Math.pow(2, 30),
+    },
 };
 
 /**
@@ -23,116 +24,234 @@ export async function initializeSEALClient() {
     if (seal) return;
 
     seal = await SEAL({
-        locateFile: (path: string) => path.endsWith(".wasm") ? "/seal_all.wasm" : path
+        locateFile: (path: string) => (path.endsWith('.wasm') ? '/seal_all.wasm' : path),
     });
 
     const parms = new seal.EncryptionParameters(seal.SchemeType.ckks);
     parms.setPolyModulusDegree(HE_PARAMS.ckks.polyModulusDegree);
-    parms.setCoeffModulus(seal.CoeffModulus.Create(HE_PARAMS.ckks.polyModulusDegree, new Int32Array(HE_PARAMS.ckks.coeffModulusBitSizes)));
+    parms.setCoeffModulus(
+        seal.CoeffModulus.Create(
+            HE_PARAMS.ckks.polyModulusDegree,
+            Int32Array.from(HE_PARAMS.ckks.coeffModulusBitSizes),
+        ),
+    );
 
-    context = new seal.SEALContext(parms, true, seal.SecLevelType.tc128);
+    context = new seal.SEALContext(parms, true, seal.SecLevelType.none);
     encoders.ckks = new seal.CKKSEncoder(context);
-
 }
 
+
+
+
+/**
+ * Core engine for performing Homomorphic computations in the browser.
+ * This extracts the heavy SEAL logic from the UI components.
+ */
+export const executeHomomorphicComputation = async (
+    type: "sum" | "average" | "regression",
+    selectedIds: string[],
+    activeScheme: string
+) => {
+    await initializeSEALClient();
+
+    if (!seal || !context) {
+        throw new Error("SEAL Engine failed to initialize.");
+    }
+
+    const evaluator = new seal.Evaluator(context);
+    const resultCiphertext = new seal.Ciphertext();
+
+    const fullRecords = await Promise.all(
+        selectedIds.map((id) => getCiphertextById(id))
+    );
+
+    try {
+        if (type === "sum" || type === "average") {
+            if (fullRecords.length < 2) throw new Error("Need at least 2 items.");
+
+            // STEP 1: LOAD FIRST RECORD
+            resultCiphertext.loadFromBase64(context, fullRecords[0].ciphertextBase64);
+
+            // STEP 2: SUM EVERYTHING (Works for both 'sum' and 'average')
+            for (let i = 1; i < fullRecords.length; i++) {
+                const nextCt = new seal.Ciphertext();
+                try {
+                    nextCt.loadFromBase64(context, fullRecords[i].ciphertextBase64);
+                    evaluator.addInplace(resultCiphertext, nextCt);
+                } finally {
+                    nextCt.delete();
+                }
+            }
+            // NO MULTIPLICATION HERE. We are keeping it simple.
+        }
+
+        else if (type === "regression") {
+            const inputCt = new seal.Ciphertext();
+            const ckksEncoder = new seal.CKKSEncoder(context);
+            const ptSlope = new seal.Plaintext();
+            const ptIntercept = new seal.Plaintext();
+
+            try {
+                inputCt.loadFromBase64(context, fullRecords[0].ciphertextBase64);
+
+                // Multiply x * 0.75
+                ckksEncoder.encode(Float64Array.from([0.75]), inputCt.scale, ptSlope);
+                evaluator.multiplyPlain(inputCt, ptSlope, resultCiphertext);
+
+                // Rescale (reduces scale automatically)
+                if (resultCiphertext.coeffModulusSize > 1) {
+                    evaluator.rescaleToNextInplace(resultCiphertext);
+                }
+
+                // 🔥 DO NOT TOUCH SCALE
+                const currentScale = resultCiphertext.scale;
+
+                // Encode intercept at EXACT same scale
+                ckksEncoder.encode(Float64Array.from([5.0]), currentScale, ptIntercept);
+
+                evaluator.addPlainInplace(resultCiphertext, ptIntercept);
+
+            } finally {
+                inputCt.delete();
+                ptSlope.delete();
+                ptIntercept.delete();
+                ckksEncoder.delete();
+            }
+        }
+
+
+
+
+
+        const compression = seal.ComprModeType.none;
+        const finalBase64 = resultCiphertext.saveToBase64(compression);
+        const newResultId = `res_${type}_${Date.now().toString().slice(-4)}`;
+
+        // STEP 3: UPLOAD WITH METADATA
+        await uploadCiphertext({
+            dataId: newResultId,
+            ciphertextBase64: finalBase64,
+            scheme: activeScheme,
+            metadata: {
+                type: fullRecords[0].metadata.type,
+                operation: type,
+                // Crucial: Store the count so we can divide later
+                averageCount: fullRecords.length,
+                sourceDataIds: selectedIds,
+                processedAt: new Date().toISOString()
+            },
+        });
+
+        return { success: true, resultId: newResultId };
+
+    } catch (err: any) {
+        console.error("SEAL Execution Error:", err);
+        throw err;
+    } finally {
+        if (resultCiphertext) resultCiphertext.delete();
+        if (evaluator) evaluator.delete();
+    }
+};
 /**
  * 2. AES Key Derivation
- * Uses the password and email to create a key for locking/unlocking the HE Secret Key.
  */
 async function getAESKey(password: string, email: string): Promise<CryptoKey> {
     const enc = new TextEncoder();
-    const keyMaterial = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveKey"]);
-    return crypto.subtle.deriveKey(
-        { name: "PBKDF2", salt: enc.encode(email), iterations: 100000, hash: "SHA-256" },
-        keyMaterial,
-        { name: "AES-GCM", length: 256 },
+    const keyMaterial = await crypto.subtle.importKey(
+        'raw',
+        enc.encode(password),
+        'PBKDF2',
         false,
-        ["encrypt", "decrypt"]
+        ['deriveKey'],
+    );
+
+    return crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt: enc.encode(email), iterations: 100_000, hash: 'SHA-256' },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt', 'decrypt'],
     );
 }
 
 /**
  * 3. Generate & Wrap Keys (For Registration)
- * Generates a real HE key and encrypts it with the password.
  */
-
 export async function createAndWrapKeys(password: string, email: string) {
     if (!seal || !context) await initializeSEALClient();
 
-    const keygen = new seal.KeyGenerator(context!);
+    const keygen = new seal.KeyGenerator(context);
     const secretKey = keygen.secretKey();
     const publicKey = keygen.createPublicKey();
     const relinKeys = keygen.createRelinKeys();
 
-    // 1. Force a specific compression mode. 
-    // "none" is the most compatible and avoids the 'value' undefined error.
-    const compression = seal.ComprModeType.zstd;
+    const compression = seal.ComprModeType.none;
 
-    // 2. Pass the compression mode explicitly to every call
     const secretKeyBase64 = secretKey.saveToBase64(compression);
     const publicKeyBase64 = publicKey.saveToBase64(compression);
     const relinKeysBase64 = relinKeys.saveToBase64(compression);
 
-    // 3. Wrap the Secret Key with AES-GCM
+    // Wrap the secret key with AES-GCM
     const aesKey = await getAESKey(password, email);
     const iv = crypto.getRandomValues(new Uint8Array(12));
     const encryptedData = await crypto.subtle.encrypt(
-        { name: "AES-GCM", iv },
+        { name: 'AES-GCM', iv },
         aesKey,
-        new TextEncoder().encode(secretKeyBase64)
+        new TextEncoder().encode(secretKeyBase64),
     );
 
     const wrappedKey = JSON.stringify({
         iv: Array.from(iv),
-        ciphertext: Array.from(new Uint8Array(encryptedData))
+        ciphertext: Array.from(new Uint8Array(encryptedData)),
     });
 
-    const result = {
-        keysAndParams: {
-            scheme: HE_PARAMS.scheme,
-            params: HE_PARAMS.ckks,
-            publicKeyBase64: publicKeyBase64,
-            evaluationKeysBase64: relinKeysBase64,
-        },
-        wrappedSecretKey: btoa(wrappedKey)
-    };
-
-    // Cleanup
+    // Cleanup WASM
     publicKey.delete();
     relinKeys.delete();
     secretKey.delete();
 
-    return result;
+    return {
+        keysAndParams: {
+            scheme: HE_PARAMS.scheme,
+            params: HE_PARAMS.ckks,
+            publicKeyBase64,
+            evaluationKeysBase64: relinKeysBase64,
+        },
+        wrappedSecretKey: btoa(wrappedKey),
+    };
 }
 
 /**
  * 4. Unwrap & Load Keys (For Login)
- * Takes the wrapped key from the DB and unlocks it with the password.
  */
-export async function unwrapAndLoadKeys(wrappedKeyBase64: string, password: string, email: string) {
+export async function unwrapAndLoadKeys(
+    wrappedKeyBase64: string,
+    password: string,
+    email: string,
+) {
     if (!seal) await initializeSEALClient();
 
     const { iv, ciphertext } = JSON.parse(atob(wrappedKeyBase64));
     const aesKey = await getAESKey(password, email);
-
     const decrypted = await crypto.subtle.decrypt(
-        { name: "AES-GCM", iv: new Uint8Array(iv) },
+        { name: 'AES-GCM', iv: new Uint8Array(iv) },
         aesKey,
-        new Uint8Array(ciphertext)
+        new Uint8Array(ciphertext),
     );
 
     const secretKeyBase64 = new TextDecoder().decode(decrypted);
 
-    // Load into SEAL
     const secretKey = new seal.SecretKey();
-    secretKey.loadFromBase64(context!, secretKeyBase64);
+    secretKey.loadFromBase64(context, secretKeyBase64);
 
-    const keygen = new seal.KeyGenerator(context!, secretKey);
+    const keygen = new seal.KeyGenerator(context, secretKey);
     const publicKey = keygen.createPublicKey();
-    encryptor = new seal.Encryptor(context!, publicKey);
 
-    secretKey.delete();
+    encryptor = new seal.Encryptor(context, publicKey);
+
+    // Cleanup
     publicKey.delete();
+    secretKey.delete();
 
     return secretKeyBase64;
 }
@@ -141,93 +260,71 @@ export async function unwrapAndLoadKeys(wrappedKeyBase64: string, password: stri
  * 5. Encrypt Data
  */
 export function encryptData(data: number[] | Float64Array): string {
-    if (!encryptor || !encoders.ckks || !seal) throw new Error("Encryptor not ready");
+    if (!encryptor || !encoders.ckks || !seal) throw new Error('Encryptor not ready');
 
-    // FIX: Force conversion to Float64Array if it's a standard number array
     const inputData = data instanceof Float64Array ? data : new Float64Array(data);
-
     const plain = new seal.Plaintext();
     const cipher = new seal.Ciphertext();
 
     try {
-        // SEAL's encode method requires Float64Array specifically
         encoders.ckks.encode(inputData, HE_PARAMS.ckks.scale, plain);
         encryptor.encrypt(plain, cipher);
 
-        const base64 = cipher.saveToBase64(seal.ComprModeType.zstd);
-        return base64;
+        return cipher.saveToBase64(seal.ComprModeType.none);
     } finally {
-        // Clean up memory to avoid WASM memory leaks
         plain.delete();
         cipher.delete();
     }
 }
+
 /**
  * 6. Decrypt Data
  */
 export async function decryptCiphertext(
     ciphertextBase64: string,
-    secretKeyBase64: string
+    secretKeyBase64: string,
 ): Promise<Float64Array> {
     if (!seal || !context) await initializeSEALClient();
 
     const secretKey = new seal.SecretKey();
-    secretKey.loadFromBase64(context!, secretKeyBase64);
+    secretKey.loadFromBase64(context, secretKeyBase64);
 
-    const decryptor = new seal.Decryptor(context!, secretKey);
-    const ckksEncoder = new seal.CKKSEncoder(context!);
+    const decryptor = new seal.Decryptor(context, secretKey);
+    const ckksEncoder = new seal.CKKSEncoder(context);
 
     const cipher = new seal.Ciphertext();
     const plain = new seal.Plaintext();
 
-
     try {
-        cipher.loadFromBase64(context!, ciphertextBase64);
-
-        // 1. Decrypt the ciphertext into the plaintext object
+        cipher.loadFromBase64(context, ciphertextBase64);
         decryptor.decrypt(cipher, plain);
-
-        // 2. USE THE CORRECT METHOD NAME FOUND IN YOUR LOG
-        // In your build, it's decodeFloat64
         const result = ckksEncoder.decodeFloat64(plain);
 
-        // 3. Cleanup WASM memory
+        return result;
+    } finally {
         cipher.delete();
         plain.delete();
         decryptor.delete();
         secretKey.delete();
         ckksEncoder.delete();
-
-        return result;
-    } catch (error) {
-        if (cipher) cipher.delete();
-        if (plain) plain.delete();
-        if (secretKey) secretKey.delete();
-        if (decryptor) decryptor.delete();
-        if (ckksEncoder) ckksEncoder.delete();
-        console.error("SEAL Decryption Error:", error);
-        throw error;
     }
 }
+
 /**
- * Re-initializes the SEAL Encryptor using a Base64 Secret Key.
- * Crucial for session persistence when moving between pages.
+ * 7. Initialize Encryptor from Base64 Secret Key
  */
 export async function initializeEncryptorFromKey(secretKeyBase64: string) {
     if (!seal || !context) await initializeSEALClient();
 
-    // 1. Create SecretKey object from string
     const secretKey = new seal.SecretKey();
-    secretKey.loadFromBase64(context!, secretKeyBase64);
+    secretKey.loadFromBase64(context, secretKeyBase64);
 
-    // 2. Derive Public Key (Required for Encryption)
-    const keygen = new seal.KeyGenerator(context!, secretKey);
+    const keygen = new seal.KeyGenerator(context, secretKey);
     const publicKey = keygen.createPublicKey();
 
-    // 3. Set the global encryptor
-    encryptor = new seal.Encryptor(context!, publicKey);
+    encryptor = new seal.Encryptor(context, publicKey);
 
-    // Cleanup WASM memory for temporary objects
+    // Cleanup
     secretKey.delete();
     publicKey.delete();
 }

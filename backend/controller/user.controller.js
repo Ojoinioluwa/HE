@@ -123,7 +123,7 @@ const userController = {
             throw new Error("All fields are required")
         }
 
-        const user = await User.findOne({ email }).select('-heConfig.publicKey -heConfig.evaluationKey');
+        const user = await User.findOne({ email }).select('-heConfig');
 
         if (!user) {
             res.status(400)
@@ -152,6 +152,7 @@ const userController = {
         }
 
         const isMatch = await bcrypt.compare(password, user.password);
+        console.log(isMatch)
         if (!isMatch) {
             user.wrongTrials += 1;
             await user.save()
@@ -159,9 +160,14 @@ const userController = {
             throw new Error("Invalid Login credentials");
         }
 
+        console.log("10")
         user.wrongTrials = 0;
+        console.log("11")
         await user.save()
-        const token = jwt.sign({ id: user.id, role: user.userType }, process.env.JWT_SECRET, { expiresIn: "10d" });
+        console.log("12")
+        const token = jwt.sign({ id: user.id, role: user.userType }, process.env.JWT_SECRET, { expiresIn: "40d" });
+
+        console.log("done")
 
         res.status(200).json({
             success: true,

@@ -14,8 +14,11 @@ const getAuthHeaders = (token: string) => ({
 export interface InitPayload {
     scheme: string;
     params: any;
-    publicKeyBase64: string;
-    evaluationKeysBase64: string;
+    publicKey: string;
+    evaluationKeys: string;
+    wrappedSecretKey: string;
+    isInitialized: boolean,
+    coeffModulusBitSizes: [number]
 }
 
 export interface UploadPayload {
@@ -47,18 +50,24 @@ export const getMyUploads = async () => {
 };
 
 // 1. Initialize HE Context
-export const initializeHEContext = async (token: string, payload: InitPayload) => {
+export const InitializeHEServerAPI = async (payload: InitPayload) => {
+    const user = await getUserFromStorage();
+    const token = user?.token;
+    console.log(token)
+    console.log(payload)
     const response = await fetch(`${API_BASE_URL}/init`, {
         method: 'POST',
-        headers: getAuthHeaders(token),
+        headers: getAuthHeaders(token!),
         body: JSON.stringify(payload),
     });
     const data = await response.json();
+    console.log(data)
     if (!response.ok) {
         throw new Error(data.details || data.error || 'HE context initialization failed.');
     }
     return data;
 };
+
 
 // 2. Upload Encrypted Data
 export const uploadCiphertext = async (payload: UploadPayload) => {
@@ -236,4 +245,21 @@ export const computeLinearRegression = async ({ token, dataId_A, dataId_B, resul
         throw new Error(data.details || data.error || 'Homomorphic Linear Regression failed.');
     }
     return data;
+};
+
+
+export const runHEComputation = async (type: 'sum' | 'multiply' | 'average' | 'linear-regression', payload: any) => {
+    const user = await getUserFromStorage();
+    const token = user?.token
+    const response = await fetch(`${API_BASE_URL}/compute/${type}`, {
+        method: 'POST',
+        headers: getAuthHeaders(token!),
+        body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Computation failed');
+    }
+    return await response.json();
 };
