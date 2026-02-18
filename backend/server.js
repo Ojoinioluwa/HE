@@ -73,6 +73,9 @@ async function connectToMongoDB() {
 async function startServer() {
     await initializeSEAL();
     await connectToMongoDB();
+    const user = process.env.AUTH_EMAIL
+    console.log(user)
+
 
 
     try {
