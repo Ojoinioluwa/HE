@@ -123,24 +123,7 @@ function Register() {
           </span>
           <div className="grow border-t border-gray-300"></div>
         </div>
-        <div className="flex gap-3 w-full py-1">
-          <Button
-            variant="outlined"
-            size="medium"
-            fullWidth
-            startIcon={<FcGoogle />}
-          >
-            Google
-          </Button>
-          <Button
-            variant="outlined"
-            size="medium"
-            fullWidth
-            startIcon={<FaGithub />}
-          >
-            Github
-          </Button>
-        </div>
+
         <div className="flex gap-2 ">
           <p className="inline text-base">Already have an account?</p>
           <Link

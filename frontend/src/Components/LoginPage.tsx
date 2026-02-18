@@ -228,35 +228,6 @@ const LoginPage: React.FC = () => {
                 </Button>
               </Typography>
             </Box>
-
-            <Divider sx={{ my: 2 }}>OR</Divider>
-
-            <Box sx={{ display: "flex", gap: 2 }}>
-              <Button
-                fullWidth
-                variant="outlined"
-                startIcon={<FcGoogle />}
-                sx={{
-                  textTransform: "none",
-                  color: "#555",
-                  borderColor: "#ccc",
-                }}
-              >
-                Google
-              </Button>
-              <Button
-                fullWidth
-                variant="outlined"
-                startIcon={<FaGithub style={{ color: "#333" }} />}
-                sx={{
-                  textTransform: "none",
-                  color: "#555",
-                  borderColor: "#ccc",
-                }}
-              >
-                GitHub
-              </Button>
-            </Box>
           </Box>
         </Paper>
       </Box>
