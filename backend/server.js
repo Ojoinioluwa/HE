@@ -11,6 +11,7 @@ import userRouter from "./routes/user/userRouter.js";
 import limiter from "./middlewares/rateLimiter.js";
 import helmet from "helmet";
 import heRouter from "./routes/HE/heRouter.js";
+import { transporter } from "./utils/sendMail.js";
 
 // --- Globals Holder ---
 export const sealGlobals = {
@@ -72,6 +73,17 @@ async function connectToMongoDB() {
 async function startServer() {
     await initializeSEAL();
     await connectToMongoDB();
+
+
+    try {
+        // This 'awaits' the check so you know the status immediately
+        await transporter.verify();
+        console.log("✅ Mail Server is ready");
+    } catch (error) {
+        // We catch the error so it doesn't kill the server
+        console.error("❌ Nodemailer Setup Error:", error.message);
+        console.log("⚠️  Proceeding without mail service...");
+    }
 
     // --- Express Middleware ---
     app.use(express.json({ limit: "100mb" }));

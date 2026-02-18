@@ -3,22 +3,18 @@ import bcrypt from "bcryptjs";
 import UserVerification from "../models/UserVerification.js";
 
 // Initialize Transporter
-const transporter = nodemailer.createTransport({
-  service: "gmail",
+export const transporter = nodemailer.createTransport({
+  host: "smtp.gmail.com",
+  port: 465,
+  secure: true, // Use SSL
   auth: {
-    user: process.env.AUTH_EMAIL,     // Your gmail: example@gmail.com
-    pass: process.env.AUTH_PASSWORD,  // The 16-digit App Password
+    user: process.env.AUTH_EMAIL,
+    pass: process.env.AUTH_PASSWORD,
   },
+  connectionTimeout: 10000, // Wait 10 seconds before giving up
+  greetingTimeout: 10000,
 });
 
-// Verify connection configuration
-transporter.verify((error, success) => {
-  if (error) {
-    console.error("❌ Nodemailer Setup Error:", error);
-  } else {
-    console.log("✅ Mail Server is ready");
-  }
-});
 
 const sendMail = async ({ _id, email, firstName }) => {
   try {
