@@ -1,5 +1,5 @@
 import dotenv from "dotenv";
-dotenv.config(); // Load env variables
+dotenv.config();
 import cors from "cors";
 import express from "express";
 import mongoose from "mongoose";
@@ -11,11 +11,11 @@ import userRouter from "./routes/user/userRouter.js";
 import limiter from "./middlewares/rateLimiter.js";
 import helmet from "helmet";
 import heRouter from "./routes/HE/heRouter.js";
-import { transporter } from "./utils/sendMail.js";
+// REMOVED: import { transporter } from "./utils/sendMail.js";
 
 // --- Globals Holder ---
 export const sealGlobals = {
-    seal: null, // will store the SEAL instance
+    seal: null,
 };
 
 const app = express();
@@ -35,13 +35,10 @@ app.use(
 
 // --- Initialization Functions ---
 
-/**
- * Initialize Node-SEAL
- */
 async function initializeSEAL() {
     try {
         const sealInstance = await SEAL();
-        sealGlobals.seal = sealInstance; // store globally
+        sealGlobals.seal = sealInstance;
         console.log(`Node-SEAL version: ${sealInstance.version || "unknown"} initialized.`);
     } catch (err) {
         console.error("Error initializing Node-SEAL:", err);
@@ -49,16 +46,12 @@ async function initializeSEAL() {
     }
 }
 
-/**
- * Connect to MongoDB
- */
 async function connectToMongoDB() {
     try {
         if (!process.env.MONGODB_URI) {
             console.warn("MONGODB_URI not provided. Skipping database connection.");
             return;
         }
-
         await mongoose.connect(process.env.MONGODB_URI);
         console.log("MongoDB connected successfully");
     } catch (err) {
@@ -71,38 +64,27 @@ async function connectToMongoDB() {
  * Start the server
  */
 async function startServer() {
+    // 1. Core Logic setup
     await initializeSEAL();
     await connectToMongoDB();
-    const user = process.env.AUTH_EMAIL
-    console.log(user)
 
-
-
-    try {
-        // This 'awaits' the check so you know the status immediately
-        await transporter.verify();
-        console.log("✅ Mail Server is ready");
-    } catch (error) {
-        // We catch the error so it doesn't kill the server
-        console.error("❌ Nodemailer Setup Error:", error.message);
-        console.log("⚠️  Proceeding without mail service...");
-    }
-
-    // --- Express Middleware ---
+    // 2. Express Middleware
     app.use(express.json({ limit: "100mb" }));
     app.use(express.urlencoded({ limit: "100mb", extended: true }));
     app.use(limiter);
     app.use(helmet());
 
-    // --- Routes ---
+    // 3. Routes
     app.use("/api/v1", userRouter);
     app.use("/api/v1/he", heRouter);
 
-    // --- Error handler ---
+    // 4. Error handler
     app.use(errorhandler);
 
+    // 5. Port Binding
     app.listen(PORT, () => {
-        console.log(`Server running on port ${PORT}`);
+        console.log(`🚀 Server running on port ${PORT}`);
+        console.log(`📧 SendGrid mail system ready (REST API mode)`);
     });
 }
 
