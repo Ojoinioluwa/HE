@@ -1,1 +1,14 @@
 @import "tailwindcss";
+
+/* This is the "no excuse" fix to ensure Tailwind widths work on the container */
+.Toastify__toast-container {
+  width: var(--toastify-container-width); /* Default behavior */
+}
+
+/* Force our custom width to win */
+.Toastify__toast-container--top-center {
+  width: 600px !important;
+  max-width: 90vw;
+  left: 50%;
+  transform: translateX(-50%);
+}

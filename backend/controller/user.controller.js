@@ -182,6 +182,48 @@ const userController = {
         })
     }),
 
+    // resend verification code
+    resendOTP: asyncHandler(async (req, res) => {
+        const { email } = req.body;
+
+        if (!email) {
+            return res.status(400).json({ success: false, message: "Email is required" });
+        }
+
+        const user = await User.findOne({ email });
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: "User not found" });
+        }
+
+        if (user.verified) {
+            return res.status(400).json({ success: false, message: "Account is already verified. Please log in." });
+        }
+
+        // Optional: Delete existing verification record to prevent clutter
+        await UserVerification.deleteMany({ userId: user._id });
+
+        try {
+            // Reuse your existing sendMail function
+            await sendMail({
+                _id: user._id,
+                email: user.email,
+                firstName: user.firstName
+            });
+
+            res.status(200).json({
+                success: true,
+                message: "A new verification code has been sent to your email."
+            });
+        } catch (err) {
+            console.error('Resend Email Error:', err);
+            res.status(500).json({
+                success: false,
+                message: "Failed to send verification email. Try again later."
+            });
+        }
+    }),
+
 
     updateHEKeys: asyncHandler(async (req, res) => {
         try {

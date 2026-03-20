@@ -14,16 +14,16 @@ import { Buffer } from "buffer"; // <-- Keep Buffer Polyfill if needed
 
 const queryClient = new QueryClient();
 
+// src/main.tsx
+// ... (imports)
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <Provider store={store}>
-      {" "}
-      {/* 1. Redux Provider */}
       <QueryClientProvider client={queryClient}>
-        {" "}
         <ToastContainer
-          position="top-right"
-          autoClose={3000}
+          position="top-center"
+          autoClose={5000}
           hideProgressBar={false}
           newestOnTop={false}
           closeOnClick
@@ -31,10 +31,18 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           pauseOnFocusLoss
           draggable
           pauseOnHover
+          theme="colored"
+          /* Use 'className' to set the outer width */
+          className="w-[600px]! max-w-[90vw]!"
+          /* Use 'toastClassName' to style the individual cards */
+          toastClassName="relative flex p-6 min-h-[100px] rounded-xl justify-between overflow-hidden cursor-pointer shadow-2xl mb-4 text-xl font-bold"
+          /* Note: If you need to style the inner text container specifically, 
+             the prop name is actually 'bodyClassName' (it IS valid, but TS 
+             sometimes struggles if the version is older/mismatched). 
+             If it still complains, just put all text styles in 'toastClassName'. */
         />
-        {/* 2. TanStack Query Provider */}
         <App />
       </QueryClientProvider>
     </Provider>
-  </React.StrictMode>
+  </React.StrictMode>,
 );

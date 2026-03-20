@@ -25,20 +25,30 @@ const sendMail = async ({ _id, email, firstName }) => {
 
     // --- 3. Send via SendGrid ---
     const msg = {
-      to: email, // This can now be ANY email address
-      from: process.env.AUTH_EMAIL, // This MUST be your verified Single Sender email
-      subject: "Verify Your Email Address",
+      to: email,
+      from: `HE System <${process.env.AUTH_EMAIL}>`, // Use a "Friendly Name"
+      replyTo: process.env.AUTH_EMAIL,
+      subject: `${otp} is your HE System verification code`, // Subject lines with OTPs often perform better
       html: `
-        <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #eee;">
-          <h2 style="color: #007BFF;">Verify Your Email</h2>
-          <p>Hello ${firstName},</p>
-          <p>Use the code below to complete your registration for the HE System:</p>
-          <div style="font-size: 32px; font-weight: bold; background: #f8f9fa; padding: 20px; text-align: center; letter-spacing: 5px;">
-            ${otp}
-          </div>
-          <p>This code expires in 10 minutes.</p>
-        </div>
-      `,
+    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 550px; margin: 0 auto; padding: 40px 20px; color: #333; line-height: 1.6;">
+      <h2 style="color: #1a1a1a; font-size: 24px; margin-bottom: 20px;">Verify your email address</h2>
+      <p>Hi ${firstName},</p>
+      <p>Thank you for joining the HE System. To complete your registration and secure your account, please enter the following verification code:</p>
+      
+      <div style="margin: 30px 0; padding: 20px; background-color: #f4f7fa; border-radius: 8px; text-align: center;">
+        <span style="font-size: 28px; font-weight: 700; color: #007BFF; letter-spacing: 2px;">${otp}</span>
+      </div>
+      
+      <p style="font-size: 14px; color: #666;">This code is valid for 10 minutes. If you didn't request this, you can safely ignore this email.</p>
+      
+      <hr style="border: 0; border-top: 1px solid #eee; margin: 30px 0;" />
+      
+      <p style="font-size: 12px; color: #999; text-align: center;">
+        © 2026 HE System. All rights reserved.<br>
+        123 Tech Lane, Silicon Valley, CA 94000
+      </p>
+    </div>
+  `,
     };
 
     await sgMail.send(msg);

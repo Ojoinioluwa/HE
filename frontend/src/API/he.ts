@@ -2,8 +2,9 @@
 
 import type { CiphertextRecord } from "../types/heTypes";
 import { getUserFromStorage } from "../utils/getUserFromStorage";
+import { BASE_URL } from "../utils/url";
 
-const API_BASE_URL = 'https://he-400l.onrender.com/api/v1/he';
+const API_BASE_URL = `${BASE_URL}/he`;
 
 // Helper function to get the auth header
 const getAuthHeaders = (token: string) => ({

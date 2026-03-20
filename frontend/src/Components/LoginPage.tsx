@@ -214,6 +214,16 @@ const LoginPage: React.FC = () => {
                   : "Sign In"}
             </Button>
 
+            <Button
+              fullWidth
+              variant="outlined"
+              color="secondary"
+              onClick={() => navigate("/verify")}
+              sx={{ mb: 2, py: 1, fontWeight: "bold", textTransform: "none" }}
+            >
+              Already have a code? Verify Account
+            </Button>
+
             <Box sx={{ textAlign: "center", mb: 2 }}>
               <Typography variant="body2">
                 Don't have an account?{" "}

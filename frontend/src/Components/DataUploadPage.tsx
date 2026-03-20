@@ -11,45 +11,28 @@ import { uploadCiphertext } from "../API/he";
 import type { UploadPayload } from "../API/he";
 import { imageFileToNormalizedVector } from "../utils/imageProcessing";
 import { toast, Toaster } from "react-hot-toast";
-import SyncIcon from "@mui/icons-material/Sync";
 import { useNavigate } from "react-router-dom";
 
-// const IMAGE_HE_SIZE = 32;
+// MUI Icons
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import CloudUploadIcon from "@mui/icons-material/CloudUpload";
+import TextFieldsIcon from "@mui/icons-material/TextFields";
+import ImageIcon from "@mui/icons-material/Image";
+import LockIcon from "@mui/icons-material/Lock";
+
+const IMAGE_HE_SIZE = 36;
 
 const DataUploadPage: React.FC = () => {
   const { secretKeyBase64 } = useSelector((state: RootState) => state.auth);
+  const navigate = useNavigate();
 
   // Form State
   const [dataType, setDataType] = useState<"text" | "image">("text");
   const [rawData, setRawData] = useState("");
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [dataId, setDataId] = useState("");
+  const [dataId, setDataId] = useState(""); // Now auto-populated
   const [isReady, setIsReady] = useState(false);
-  const navigate = useNavigate();
-
-  // Helper to determine if text is actually a CSV of numbers
-  const getProcessedNumericVector = (
-    text: string,
-  ): { vector: number[]; format: string } => {
-    // Check if the string contains numbers separated by commas
-    const parts = text.split(",").map((p) => p.trim());
-    const isNumericCsv =
-      parts.length > 1 &&
-      parts.every((p) => !isNaN(parseFloat(p)) && isFinite(Number(p)));
-
-    if (isNumericCsv) {
-      return {
-        vector: parts.map((p) => parseFloat(p)),
-        format: "numeric-vector",
-      };
-    } else {
-      return {
-        vector: Array.from(text).map((c) => c.charCodeAt(0)),
-        format: "text-sequence",
-      };
-    }
-  };
 
   // 1. Sync Encryption Engine
   useEffect(() => {
@@ -61,14 +44,39 @@ const DataUploadPage: React.FC = () => {
           setIsReady(true);
         }
       } catch (err) {
+        toast.error("Encryption engine offline.");
         console.error(err);
-        toast.error("Failed to initialize encryption engine.");
       }
     };
     setup();
   }, [secretKeyBase64]);
 
-  // 2. Image Preview Effect
+  // 2. Auto-generate Data ID based on input with duplicate prevention
+  useEffect(() => {
+    if (dataType === "image" && imageFile) {
+      // 1. Get base name: "my_cat.jpg" -> "my_cat"
+      const baseName = imageFile.name
+        .split(".")[0]
+        .replace(/[^a-zA-Z0-9]/g, "_");
+
+      // 2. Add a unique suffix (Timestamp + Random string)
+      // Example output: "my_cat_170845"
+      const uniqueSuffix =
+        Date.now().toString().slice(-4) +
+        Math.random().toString(36).substring(2, 4);
+
+      setDataId(`${baseName}_${uniqueSuffix}`);
+    } else if (dataType === "text" && rawData.length > 0) {
+      // For text, we generate a new ID only if the box was previously empty
+      if (!dataId) {
+        setDataId(`text_${Math.random().toString(36).substring(2, 8)}`);
+      }
+    } else if (!rawData && !imageFile) {
+      setDataId("");
+    }
+  }, [imageFile, rawData, dataType, dataId]);
+
+  // Image Preview
   useEffect(() => {
     if (!imageFile) {
       setImagePreview(null);
@@ -79,279 +87,287 @@ const DataUploadPage: React.FC = () => {
     return () => URL.revokeObjectURL(objectUrl);
   }, [imageFile]);
 
-  // 3. Mutation
   const { mutateAsync: uploadMutate, isPending: uploadPending } = useMutation({
     mutationKey: ["UploadCiphertext"],
     mutationFn: (payload: UploadPayload) => uploadCiphertext(payload),
   });
 
-  // 1. Update the size to match your decryption logic
-  const IMAGE_HE_SIZE = 36;
+  const getProcessedNumericVector = (text: string) => {
+    const parts = text.split(",").map((p) => p.trim());
+    const isNumericCsv =
+      parts.length > 1 && parts.every((p) => !isNaN(parseFloat(p)));
 
-  // ... (Inside DataUploadPage component)
+    return isNumericCsv
+      ? { vector: parts.map((p) => parseFloat(p)), format: "numeric-vector" }
+      : {
+          vector: Array.from(text).map((c) => c.charCodeAt(0)),
+          format: "text-sequence",
+        };
+  };
 
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isReady) return toast.error("Encryption not initialized.");
+
+    const loadingToast = toast.loading("Encrypting and uploading...");
 
     try {
       let numericVector: number[] = [];
       const metadata: any = {
         type: dataType,
         uploadedAt: new Date().toISOString(),
-        project: "Homomorphic Encryption Dashboard",
-        operation: "source", // Explicitly set for raw uploads
+        operation: "source",
       };
 
-      // --- STEP 1: CLOUDINARY UPLOAD ---
       if (dataType === "image" && imageFile) {
         const cloudFormData = new FormData();
         cloudFormData.append("file", imageFile);
         cloudFormData.append("upload_preset", "ml_default");
-        cloudFormData.append("api_key", "244376938292441");
-
-        // Use your unique dataId as the public_id in Cloudinary
-        // This ensures the URL contains your unique ID
         cloudFormData.append("public_id", dataId);
 
         const cloudRes = await fetch(
           `https://api.cloudinary.com/v1_1/drzpz8suu/image/upload`,
           { method: "POST", body: cloudFormData },
         );
-
         const cloudData = await cloudRes.json();
-        if (cloudData.error)
-          throw new Error(`Cloudinary: ${cloudData.error.message}`);
 
-        // Store the high-res URL and use dataId for the filename record
         metadata.displayUrl = cloudData.secure_url;
-        metadata.fileName = `${dataId}.${cloudData.format}`; // e.g., "my_unique_id.jpg"
-      }
+        metadata.fileName = `${dataId}.${cloudData.format}`;
 
-      // --- STEP 2: VECTORIZATION & ENCRYPTION ---
-      if (dataType === "text") {
-        const { vector, format } = getProcessedNumericVector(rawData);
-        numericVector = vector;
-        metadata.format = format;
-        metadata.charCount =
-          format === "text-sequence" ? rawData.length : undefined;
-      } else if (dataType === "image" && imageFile) {
         numericVector = await imageFileToNormalizedVector(
           imageFile,
           IMAGE_HE_SIZE,
         );
         metadata.format = "color-vector";
         metadata.channels = 3;
-        metadata.width = IMAGE_HE_SIZE;
-        metadata.height = IMAGE_HE_SIZE;
-        metadata.vectorLength = numericVector.length;
+        metadata.width = metadata.height = IMAGE_HE_SIZE;
+      } else {
+        const { vector, format } = getProcessedNumericVector(rawData);
+        numericVector = vector;
+        metadata.format = format;
       }
 
-      // Capacity Check (Standard for 8192 degree)
       if (numericVector.length > 4096)
-        throw new Error("Data exceeds slot limit.");
-      if (numericVector.length === 0) throw new Error("No data provided");
+        throw new Error("Data too large for encryption slots.");
 
-      const floatArray = new Float64Array(numericVector);
-      const ciphertextBase64 = encryptData(floatArray);
+      const ciphertextBase64 = encryptData(new Float64Array(numericVector));
+      metadata.sizeBytes = Math.floor(ciphertextBase64.length * 0.75);
 
-      // Final Payload
-      metadata.sizeBytes = Math.floor(ciphertextBase64.length * (3 / 4));
-
-      const payload: UploadPayload = {
+      await uploadMutate({
         dataId,
         ciphertextBase64,
         scheme: "ckks",
         metadata,
-      };
+      });
 
-      await uploadMutate(payload);
-
-      toast.success(`Securely uploaded ${dataType}!`);
-
-      // Reset
+      toast.dismiss(loadingToast);
+      toast.success("Data secured and uploaded!");
       setRawData("");
       setImageFile(null);
-      setDataId("");
     } catch (err: any) {
-      console.error("Upload Error:", err);
+      toast.dismiss(loadingToast);
       toast.error(err.message || "Upload failed");
     }
   };
 
-  // UI Calculations for the summary box
-  const summaryInfo = (() => {
-    if (dataType === "image") {
-      return {
-        length: IMAGE_HE_SIZE * IMAGE_HE_SIZE * 3,
-        mode: "RGB (Vectorized)",
-      };
-    }
-    if (!rawData) return { length: 0, mode: "Waiting..." };
-
-    const { vector, format } = getProcessedNumericVector(rawData);
-    return {
-      length: vector.length,
-      mode: format === "numeric-vector" ? "Numeric CSV" : "UTF-8 Text",
-    };
-  })();
-
   return (
-    <div className="min-h-screen bg-slate-50 py-12 px-4 flex justify-center items-center">
-      <Toaster position="top-right" />
-      <div className="max-w-xl w-full bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden">
-        <div className="bg-slate-900 p-8 text-white">
-          <h1 className="text-2xl font-bold">Secure Data Upload</h1>
-          <p className="text-slate-400 text-sm">
-            Your data is converted to vectors and encrypted locally before
-            upload.
-          </p>
-        </div>
+    <div className="min-h-screen bg-[#f8fafc] py-12 px-4 font-sans selection:bg-blue-100">
+      <Toaster position="top-center" reverseOrder={false} />
 
-        <div className="px-8 pt-6">
-          <button
-            onClick={() => navigate("/dashboard")}
-            className="flex items-center justify-center gap-2 bg-white border border-slate-200 px-4 py-2.5 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-all active:scale-95"
-          >
-            <SyncIcon sx={{ fontSize: 18 }} /> Go to Dashboard
-          </button>
-        </div>
+      <div className="max-w-2xl mx-auto">
+        {/* Top Navigation */}
+        <button
+          onClick={() => navigate("/dashboard")}
+          className="group flex items-center gap-2 text-slate-500 hover:text-blue-600 font-bold text-sm mb-6 transition-colors"
+        >
+          <ArrowBackIcon
+            sx={{ fontSize: 18 }}
+            className="group-hover:-translate-x-1 transition-transform"
+          />
+          Back to Vault
+        </button>
 
-        <form onSubmit={handleUpload} className="p-8 space-y-6">
-          <div>
-            <label className="block text-xs font-bold uppercase text-slate-500 mb-2">
-              Unique Data ID
-            </label>
-            <input
-              required
-              className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:border-blue-500 outline-none transition-all"
-              placeholder="e.g. sensor_data_alpha"
-              value={dataId}
-              onChange={(e) => setDataId(e.target.value)}
+        <div className="bg-white rounded-4xl shadow-2xl shadow-blue-900/5 border border-slate-100 overflow-hidden">
+          {/* Hero Header */}
+          <div className="bg-linear-to-r from-slate-900 to-slate-800 p-10 text-white relative overflow-hidden">
+            <div className="relative z-10">
+              <div className="flex items-center gap-3 mb-2">
+                <LockIcon className="text-blue-400" />
+                <span className="text-blue-400 font-black text-xs uppercase tracking-[0.2em]">
+                  Zero Knowledge Upload
+                </span>
+              </div>
+              <h1 className="text-3xl font-black tracking-tight">
+                Protect Your Data
+              </h1>
+              <p className="text-slate-400 text-sm mt-2 max-w-md">
+                Data is vectorized and encrypted using the CKKS scheme locally.
+                We never see your raw information.
+              </p>
+            </div>
+            <CloudUploadIcon
+              className="absolute -right-4 -bottom-4 text-white/5"
+              sx={{ fontSize: 160 }}
             />
           </div>
 
-          <div className="flex p-1 bg-slate-100 rounded-2xl">
-            {(["text", "image"] as const).map((type) => (
+          <form onSubmit={handleUpload} className="p-8 space-y-8">
+            {/* Toggle Switch */}
+            <div className="flex p-1.5 bg-slate-100 rounded-2xl w-full max-w-[300px] mx-auto">
               <button
-                key={type}
                 type="button"
-                onClick={() => setDataType(type)}
-                className={`flex-1 py-2 text-sm font-bold rounded-xl transition-all ${
-                  dataType === type
-                    ? "bg-white shadow text-blue-600"
-                    : "text-slate-500 hover:text-slate-700"
+                onClick={() => setDataType("text")}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-black rounded-xl transition-all ${
+                  dataType === "text"
+                    ? "bg-white shadow-lg text-blue-600"
+                    : "text-slate-500"
                 }`}
               >
-                {type.toUpperCase()}
+                <TextFieldsIcon sx={{ fontSize: 16 }} /> TEXT/CSV
               </button>
-            ))}
-          </div>
+              <button
+                type="button"
+                onClick={() => setDataType("image")}
+                className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-xs font-black rounded-xl transition-all ${
+                  dataType === "image"
+                    ? "bg-white shadow-lg text-blue-600"
+                    : "text-slate-500"
+                }`}
+              >
+                <ImageIcon sx={{ fontSize: 16 }} /> IMAGE
+              </button>
+            </div>
 
-          <div className="min-h-[200px] border-2 border-dashed border-slate-200 rounded-2xl flex flex-col justify-center items-center p-4 bg-slate-50/50">
-            {dataType === "text" ? (
-              <textarea
-                required
-                className="w-full h-40 bg-transparent outline-none resize-none font-mono text-sm p-2"
-                placeholder="Enter text OR comma-separated numbers (e.g. 10, 25.5, 30)..."
-                value={rawData}
-                onChange={(e) => setRawData(e.target.value)}
-              />
-            ) : (
-              <div className="text-center w-full">
-                {imagePreview ? (
-                  <div className="relative inline-block">
-                    <img
-                      src={imagePreview}
-                      alt="Preview"
-                      className="h-40 w-40 object-cover rounded-lg shadow-md border-4 border-white"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setImageFile(null)}
-                      className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full h-6 w-6 flex items-center justify-center text-xs shadow-lg"
-                    >
-                      ✕
-                    </button>
-                  </div>
+            {/* Main Input Area */}
+            <div className="relative group">
+              <div
+                className={`min-h-[260px] border-2 border-dashed rounded-4xl transition-all duration-300 flex flex-col items-center justify-center p-6 ${
+                  rawData || imageFile
+                    ? "border-blue-500 bg-blue-50/30"
+                    : "border-slate-200 bg-slate-50/50 hover:border-blue-300"
+                }`}
+              >
+                {dataType === "text" ? (
+                  <textarea
+                    required
+                    className="w-full h-48 bg-transparent outline-none resize-none font-mono text-sm p-4 text-slate-700 placeholder:text-slate-300"
+                    placeholder="Paste CSV numbers (10, 20.5...) or raw text to encrypt..."
+                    value={rawData}
+                    onChange={(e) => setRawData(e.target.value)}
+                  />
                 ) : (
-                  <label className="cursor-pointer py-10 block group">
-                    <span className="text-blue-600 font-bold underline group-hover:text-blue-700">
-                      Select Image
-                    </span>
-                    <p className="text-slate-400 text-xs mt-2">
-                      JPG, PNG (Auto-resized to {IMAGE_HE_SIZE}x{IMAGE_HE_SIZE})
-                    </p>
-                    <input
-                      type="file"
-                      className="hidden"
-                      accept="image/*"
-                      onChange={(e) =>
-                        setImageFile(e.target.files?.[0] || null)
-                      }
-                    />
-                  </label>
+                  <div className="text-center">
+                    {imagePreview ? (
+                      <div className="relative group/preview">
+                        <img
+                          src={imagePreview}
+                          alt="Preview"
+                          className="h-48 w-48 object-cover rounded-3xl shadow-2xl border-4 border-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setImageFile(null)}
+                          className="absolute -top-3 -right-3 bg-red-500 text-white rounded-full h-8 w-8 flex items-center justify-center shadow-xl hover:scale-110 transition-transform"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ) : (
+                      <label className="cursor-pointer block group/label">
+                        <div className="w-20 h-20 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 group-hover/label:scale-110 transition-transform">
+                          <CloudUploadIcon sx={{ fontSize: 32 }} />
+                        </div>
+                        <span className="text-blue-600 font-black text-sm uppercase tracking-wider">
+                          Select Image
+                        </span>
+                        <p className="text-slate-400 text-[10px] mt-2 font-bold">
+                          PNG, JPG (AUTO-NORMALIZED TO 36x36)
+                        </p>
+                        <input
+                          type="file"
+                          className="hidden"
+                          accept="image/*"
+                          onChange={(e) =>
+                            setImageFile(e.target.files?.[0] || null)
+                          }
+                        />
+                      </label>
+                    )}
+                  </div>
                 )}
               </div>
-            )}
-          </div>
+            </div>
 
-          {(rawData || imageFile) && (
-            <div className="bg-blue-50 rounded-2xl p-4 border border-blue-100 space-y-3">
-              <h4 className="text-[10px] font-black text-blue-900 uppercase tracking-widest">
-                Pre-Encryption Summary
-              </h4>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col">
-                  <span className="text-xs text-blue-600 font-medium">
-                    Vector Length
-                  </span>
-                  <span className="text-lg font-bold text-slate-900">
-                    {summaryInfo.length}
-                  </span>
+            {/* Auto-Generated Data ID View */}
+            {dataId && (
+              <div className="flex items-center justify-between px-6 py-3 bg-slate-900 rounded-2xl border border-slate-800">
+                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                  Target Data ID
+                </span>
+                <span className="text-sm font-mono font-bold text-blue-400">
+                  {dataId}
+                </span>
+              </div>
+            )}
+
+            {/* Technical Breakdown Card */}
+            {(rawData || imageFile) && (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-white border border-slate-100 p-4 rounded-2xl">
+                  <p className="text-[9px] font-black text-slate-400 uppercase mb-1">
+                    Vector Size
+                  </p>
+                  <p className="text-xl font-black text-slate-900">
+                    {dataType === "image"
+                      ? IMAGE_HE_SIZE * IMAGE_HE_SIZE * 3
+                      : getProcessedNumericVector(rawData).vector.length}
+                  </p>
                 </div>
-                <div className="flex flex-col">
-                  <span className="text-xs text-blue-600 font-medium">
-                    Slot Usage
-                  </span>
-                  <span className="text-lg font-bold text-slate-900">
-                    {Math.round((summaryInfo.length / 4096) * 100)}%
-                  </span>
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-xs text-blue-600 font-medium">
-                    Data Mode
-                  </span>
-                  <span className="text-sm font-bold text-slate-900">
-                    {summaryInfo.mode}
-                  </span>
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-xs text-blue-600 font-medium">
-                    HE Scheme
-                  </span>
-                  <span className="text-sm font-bold text-slate-900">CKKS</span>
+                <div className="bg-white border border-slate-100 p-4 rounded-2xl">
+                  <p className="text-[9px] font-black text-slate-400 uppercase mb-1">
+                    Slot Load
+                  </p>
+                  <p className="text-xl font-black text-slate-900">
+                    {Math.min(
+                      100,
+                      Math.round(
+                        ((dataType === "image"
+                          ? 3888
+                          : getProcessedNumericVector(rawData).vector.length) /
+                          4096) *
+                          100,
+                      ),
+                    )}
+                    %
+                  </p>
                 </div>
               </div>
+            )}
+
+            {/* Action Button */}
+            <button
+              type="submit"
+              disabled={uploadPending || !isReady || (!rawData && !imageFile)}
+              className={`w-full py-5 rounded-2xl font-black text-sm uppercase tracking-widest transition-all transform active:scale-[0.98] shadow-2xl ${
+                uploadPending || !isReady || (!rawData && !imageFile)
+                  ? "bg-slate-100 text-slate-300 cursor-not-allowed shadow-none"
+                  : "bg-blue-600 text-white hover:bg-blue-700 shadow-blue-200"
+              }`}
+            >
+              {uploadPending
+                ? "Processing Cryptography..."
+                : "Securely Encrypt & Upload"}
+            </button>
+
+            <div className="flex items-center justify-center gap-4 opacity-30 grayscale hover:opacity-100 hover:grayscale-0 transition-all">
+              <div className="h-px bg-slate-300 w-8" />
+              <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
+                Microsoft SEAL JS • AES-256 Cloud Storage
+              </p>
+              <div className="h-px bg-slate-300 w-8" />
             </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={uploadPending || !isReady}
-            className={`w-full py-4 rounded-2xl font-black text-lg shadow-lg transition-all transform active:scale-[0.98] ${
-              uploadPending || !isReady
-                ? "bg-slate-200 text-slate-400 cursor-not-allowed"
-                : "bg-blue-600 text-white hover:bg-blue-700 shadow-blue-200 hover:shadow-xl"
-            }`}
-          >
-            {uploadPending ? "ENCRYPTING DATA..." : "PROTECT & UPLOAD"}
-          </button>
-
-          <p className="text-center text-[10px] text-slate-400 uppercase tracking-widest font-bold">
-            Powered by Microsoft SEAL • CKKS Scheme
-          </p>
-        </form>
+          </form>
+        </div>
       </div>
     </div>
   );

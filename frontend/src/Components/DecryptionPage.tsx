@@ -54,9 +54,6 @@ const DecryptionPage: React.FC<DecryptionPageProps> = ({ secretKeyBase64 }) => {
     if (record.metadata?.displayUrl) return;
 
     setIsSyncing(true);
-    const syncToast = toast.loading(
-      `Vaulting "${record.dataId}" to Cloudinary...`,
-    );
 
     try {
       // 3. Prepare the Image Blob from the Decrypted/Upscaled Canvas
@@ -217,13 +214,16 @@ const DecryptionPage: React.FC<DecryptionPageProps> = ({ secretKeyBase64 }) => {
           record.metadata?.format === "numeric-vector" ||
           record.metadata?.operation
         ) {
-          // ... (Numeric logic stays the same)
-          const rawNumbers = Array.from(vector).filter(
-            (n) => Math.abs(n) > 0.0001,
-          );
+          // 1. Convert the Float64Array to a standard Array
+          // 2. Filter out near-zero noise (common in HE)
+          // 3. Round to 2 decimal places (or use Math.round for integers)
+          const formattedNumbers = Array.from(vector)
+            .filter((n) => Math.abs(n) > 0.0001)
+            .map((n) => Number(n.toFixed(2))); // Rounds to 2 decimal places
+
           setDecryptedResult({
             type: "numeric-vector",
-            content: rawNumbers.slice(0, 1),
+            content: formattedNumbers, // Now contains all rounded numbers
           });
         } else {
           const text = Array.from(vector)
@@ -386,12 +386,24 @@ const DecryptionPage: React.FC<DecryptionPageProps> = ({ secretKeyBase64 }) => {
                       </div>
                     </div>
                   )}
-                  {/* ... other result types (numeric/text) */}
+
                   {decryptedResult?.type === "numeric-vector" && (
-                    <div className="text-center">
-                      <span className="font-mono font-black text-blue-600 text-5xl">
-                        {decryptedResult.content[0]}
-                      </span>
+                    <div className="flex flex-wrap justify-center gap-6 p-4 max-h-[400px] overflow-y-auto custom-scrollbar">
+                      {decryptedResult.content.map(
+                        (value: number, index: number) => (
+                          <div
+                            key={index}
+                            className="flex flex-col items-center"
+                          >
+                            <span className="text-[10px] font-black text-slate-400 mb-1">
+                              SLOT {index}
+                            </span>
+                            <span className="font-mono font-black text-blue-600 text-4xl md:text-5xl tracking-tighter">
+                              {value}
+                            </span>
+                          </div>
+                        ),
+                      )}
                     </div>
                   )}
                 </div>

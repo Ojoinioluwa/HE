@@ -15,6 +15,7 @@ userRouter.post("/auth/verify-user", userController.verifyUser);
 userRouter.post("/auth/forgot-password", userController.forgotPassword);
 userRouter.post("/auth/reset-password", userController.resetPassword);
 userRouter.put("/auth/change-password", isAuthenticated, userController.changePassword);
+userRouter.post("/auth/resend-otp", userController.resendOTP);
 
 
 

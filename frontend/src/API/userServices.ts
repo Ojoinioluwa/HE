@@ -35,6 +35,18 @@ export const VerifyEmailAPI = async ({ email, verificationCode }: VerifyEmail) =
     }
 }
 
+// Updated to only require email and point to the correct endpoint
+export const ResendOTPAPI = async (data: { email: string }) => {
+    try {
+        // Change the URL to match your resend route
+        const response = await axios.post(`${BASE_URL}/auth/resend-otp`, data);
+        return response.data;
+    } catch (error) {
+        catchAxiosError(error, "ResendOTPAPI Error");
+        throw error;
+    }
+};
+
 export const GetUserAPI = async () => {
     try {
         const user = await getUserFromStorage();

@@ -13,6 +13,13 @@ const validationSchema = Yup.object({
   email: Yup.string().email("Invalid email").required("Email is required"),
   password: Yup.string()
     .min(8, "Password must be at least 8 characters")
+    .matches(/[a-z]/, "At least one lowercase letter required")
+    .matches(/[A-Z]/, "At least one uppercase letter required")
+    .matches(/[0-9]/, "At least one number required")
+    .matches(
+      /[!@#$%^&*(),.?":{}|<>]/,
+      "At least one special character required",
+    )
     .required("Password is required"),
   phoneNumber: Yup.string()
     .matches(/^[0-9]{10,15}$/, "Enter a valid phone number")
@@ -22,7 +29,7 @@ const validationSchema = Yup.object({
     .required("Please confirm your password"),
 });
 
-function Register() {
+function RegistrationPage() {
   const navigate = useNavigate();
   const { mutateAsync, isPending } = useMutation({
     mutationKey: ["Register"],
@@ -126,14 +133,46 @@ function Register() {
 
             {/* Row for Passwords */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <InputField
-                isPending={isPending}
-                formik={formik}
-                name="password"
-                label="Password"
-                type="password"
-                size="small"
-              />
+              <div className="space-y-1">
+                <InputField
+                  isPending={isPending}
+                  formik={formik}
+                  name="password"
+                  label="Password"
+                  type="password"
+                  size="small"
+                />
+                {/* Real-time Requirement Checklist */}
+                {formik.values.password && (
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 px-1">
+                    {[
+                      {
+                        label: "8+ Chars",
+                        met: formik.values.password.length >= 8,
+                      },
+                      {
+                        label: "Uppercase",
+                        met: /[A-Z]/.test(formik.values.password),
+                      },
+                      {
+                        label: "Number",
+                        met: /[0-9]/.test(formik.values.password),
+                      },
+                      {
+                        label: "Symbol",
+                        met: /[!@#$%^&*]/.test(formik.values.password),
+                      },
+                    ].map((req) => (
+                      <span
+                        key={req.label}
+                        className={`text-[10px] flex items-center gap-1 transition-colors ${req.met ? "text-green-600 font-medium" : "text-slate-400"}`}
+                      >
+                        {req.met ? "✓" : "○"} {req.label}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
               <InputField
                 isPending={isPending}
                 formik={formik}
@@ -167,4 +206,4 @@ function Register() {
   );
 }
 
-export default Register;
+export default RegistrationPage;
