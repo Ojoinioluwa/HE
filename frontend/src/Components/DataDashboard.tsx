@@ -74,7 +74,7 @@ const DataDashboard: React.FC<DataDashboardProps> = ({ onViewCiphertext }) => {
         {/* Header Section */}
         <div className="flex flex-col md:flex-row md:items-center justify-between mb-10 gap-4">
           <div className="flex items-center gap-4">
-            <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-3 rounded-2xl shadow-xl shadow-blue-200 text-white">
+            <div className="bg-linear-to-br from-blue-600 to-blue-800 p-3 rounded-2xl shadow-xl shadow-blue-200 text-white">
               <StorageIcon fontSize="large" />
             </div>
             <div>
@@ -134,7 +134,7 @@ const DataDashboard: React.FC<DataDashboardProps> = ({ onViewCiphertext }) => {
                 <div
                   key={ct._id}
                   onClick={() => onViewCiphertext(ct.dataId)}
-                  className="group bg-white border border-slate-200 p-4 sm:p-6 rounded-[1.5rem] flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-blue-500 hover:shadow-2xl hover:shadow-blue-900/10 transition-all cursor-pointer"
+                  className="group bg-white border border-slate-200 p-4 sm:p-6 rounded-3xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-blue-500 hover:shadow-2xl hover:shadow-blue-900/10 transition-all cursor-pointer"
                 >
                   <div className="flex items-center gap-5">
                     <div className="w-16 h-16 shrink-0 flex items-center justify-center bg-slate-50 overflow-hidden text-slate-400 rounded-2xl group-hover:bg-blue-600 group-hover:text-white transition-all duration-300 border border-slate-100">

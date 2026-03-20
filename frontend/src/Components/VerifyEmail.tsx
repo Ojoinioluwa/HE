@@ -92,6 +92,7 @@ function VerifyEmail() {
             name="email"
             label="Email Address"
             type="email"
+            size="medium"
           />
           <InputField
             isPending={false}
@@ -99,6 +100,7 @@ function VerifyEmail() {
             name="verificationCode"
             label="Verification Code"
             type="text"
+            size="medium"
           />
           <div className="pt-2">
             <ButtonUI isPending={false} name="Verify Account" />

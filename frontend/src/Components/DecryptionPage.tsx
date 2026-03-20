@@ -90,9 +90,9 @@ const DecryptionPage: React.FC<DecryptionPageProps> = ({ secretKeyBase64 }) => {
       }
     } catch (err) {
       console.error("Cloudinary Sync Error:", err);
-      toast.error("Cloud sync failed, showing local HE render", {
-        id: syncToast,
-      });
+      // toast.error("Cloud sync failed, showing local HE render", {
+      //   id: syncToast,
+      // });
     } finally {
       setIsSyncing(false);
     }
