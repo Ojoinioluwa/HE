@@ -31,7 +31,7 @@ const validationSchema = Yup.object({
 
 function RegistrationPage() {
   const navigate = useNavigate();
-  const { mutateAsync, isPending } = useMutation({
+  const { mutateAsync, isPending, error, isError } = useMutation({
     mutationKey: ["Register"],
     mutationFn: RegisterAPI,
   });
@@ -93,6 +93,16 @@ function RegistrationPage() {
           </header>
 
           <form onSubmit={formik.handleSubmit} className="space-y-4">
+            {/* 2. Error Message Display Area */}
+            {isError && (
+              <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-600 text-sm font-medium">
+                {/* Checking for response.data.message as per your requirement.
+                   Common Axios error structure: error.response?.data?.message 
+                */}
+                {(error as any)?.response?.data?.message ||
+                  "An unexpected error occurred. Please try again."}
+              </div>
+            )}
             {/* Row for Names */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <InputField

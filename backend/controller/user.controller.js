@@ -71,7 +71,7 @@ const userController = {
         } catch (err) {
             console.error('Email send error:', err);
 
-            return res.status(500).json({ success: false, message: 'User registered, but failed to send verification email.' });
+            return res.status(500).json({ success: false, message: 'User registered, but failed to send verification email. Please use valid mail' });
         }
     }),
 
