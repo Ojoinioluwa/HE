@@ -62,7 +62,7 @@ export const GetUserAPI = async () => {
                 Authorization: `Bearer ${token}`
             }
         });
-        console.log(response.data, "data profile")
+
         return response.data;
     } catch (error) {
         catchAxiosError(error, "GetUserAPI");
@@ -85,7 +85,7 @@ export const GetSaltAPI = async (email: string): Promise<{ message: string; salt
 
 export const UpdateHEKeysAPI = async (keysAndParams: any) => {
     const user = await getUserFromStorage();
-    console.log(user)
+
     const token = user?.token;
     const response = await axios.post(`${BASE_URL}/update-he-keys`, keysAndParams, {
         headers: {

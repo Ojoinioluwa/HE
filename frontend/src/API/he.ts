@@ -54,15 +54,13 @@ export const getMyUploads = async () => {
 export const InitializeHEServerAPI = async (payload: InitPayload) => {
     const user = await getUserFromStorage();
     const token = user?.token;
-    console.log(token)
-    console.log(payload)
     const response = await fetch(`${API_BASE_URL}/init`, {
         method: 'POST',
         headers: getAuthHeaders(token!),
         body: JSON.stringify(payload),
     });
     const data = await response.json();
-    console.log(data)
+
     if (!response.ok) {
         throw new Error(data.details || data.error || 'HE context initialization failed.');
     }
@@ -111,7 +109,7 @@ export const fetchCiphertextList = async (): Promise<CiphertextSummary[]> => {
 
     const data = await response.json();
 
-    console.log(data)
+
     if (!response.ok) {
         throw new Error(data.details || data.error || 'Failed to fetch ciphertext list.');
     }
@@ -150,7 +148,7 @@ export const getCiphertextById = async (id: string): Promise<CiphertextRecord> =
     const token = user?.token;
     const getAuthHeaders = (t: string) => ({ 'Content-Type': 'application/json', 'Authorization': `Bearer ${t}` });
 
-    console.log("I was here")
+
 
     // Assuming your backend has a GET endpoint like /api/v1/he/data/Q4_Sales_2025
     const response = await fetch(`${API_BASE_URL}/data/getCipherByid/${id}`, {
@@ -159,7 +157,7 @@ export const getCiphertextById = async (id: string): Promise<CiphertextRecord> =
     });
 
     const data = await response.json();
-    console.log(data)
+
 
     if (!response.ok) {
         throw new Error(data.details || data.error || `Failed to fetch ciphertext for ID: ${id}`);
