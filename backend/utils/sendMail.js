@@ -1,18 +1,19 @@
 import sgMail from '@sendgrid/mail';
 import bcrypt from "bcryptjs";
 import UserVerification from "../models/UserVerification.js";
+import 'dotenv/config';
 
-// Initialize SendGrid
-sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+// Use the correct variable name from your .env
+sgMail.setApiKey(process.env.SEND_API);
 
 const sendMail = async ({ _id, email, firstName }) => {
   try {
-    // --- 1. OTP Generation (Same as before) ---
+    // --- 1. OTP Generation ---
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const salt = await bcrypt.genSalt(10);
     const hashedOtp = await bcrypt.hash(otp, salt);
 
-    // --- 2. Database Update (Same as before) ---
+    // --- 2. Database Update ---
     await UserVerification.findOneAndUpdate(
       { userId: _id },
       {
@@ -23,41 +24,48 @@ const sendMail = async ({ _id, email, firstName }) => {
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
 
-    // --- 3. Send via SendGrid ---
+    // --- 3. The Transformation for Deliverability ---
     const msg = {
       to: email,
-      from: `HE System <${process.env.AUTH_EMAIL}>`, // Use a "Friendly Name"
+      // 1. ADD FRIENDLY NAME: Gmail hates raw email addresses in the 'from' field
+      from: {
+        name: 'HE System Support',
+        email: process.env.AUTH_EMAIL
+      },
       replyTo: process.env.AUTH_EMAIL,
-      subject: `${otp} is your HE System verification code`, // Subject lines with OTPs often perform better
+      // 2. CLEAR SUBJECT: Avoid leading with numbers; it triggers spam filters
+      subject: "Verify your HE System account",
+      // 3. PLAIN TEXT FALLBACK: Mandatory for high deliverability
+      text: `Hi ${firstName}, your verification code is ${otp}. It expires in 10 minutes.`,
       html: `
-    <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 550px; margin: 0 auto; padding: 40px 20px; color: #333; line-height: 1.6;">
-      <h2 style="color: #1a1a1a; font-size: 24px; margin-bottom: 20px;">Verify your email address</h2>
+    <div style="font-family: Arial, sans-serif; max-width: 550px; margin: 0 auto; padding: 20px; color: #333; border: 1px solid #eee; border-radius: 10px;">
+      <h2 style="color: #007BFF; font-size: 22px;">Email Verification</h2>
       <p>Hi ${firstName},</p>
-      <p>Thank you for joining the HE System. To complete your registration and secure your account, please enter the following verification code:</p>
+      <p>Please use the verification code below to secure your HE System account. This code is valid for 10 minutes.</p>
       
-      <div style="margin: 30px 0; padding: 20px; background-color: #f4f7fa; border-radius: 8px; text-align: center;">
-        <span style="font-size: 28px; font-weight: 700; color: #007BFF; letter-spacing: 2px;">${otp}</span>
+      <div style="margin: 25px 0; padding: 15px; background-color: #f8f9fa; border-radius: 5px; text-align: center; border: 1px dashed #007BFF;">
+        <span style="font-size: 32px; font-weight: bold; color: #007BFF; letter-spacing: 5px;">${otp}</span>
       </div>
       
-      <p style="font-size: 14px; color: #666;">This code is valid for 10 minutes. If you didn't request this, you can safely ignore this email.</p>
+      <p style="font-size: 13px; color: #777;">If you did not request this code, please ignore this email or contact support if you have concerns.</p>
       
-      <hr style="border: 0; border-top: 1px solid #eee; margin: 30px 0;" />
+      <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;" />
       
-      <p style="font-size: 12px; color: #999; text-align: center;">
-        © 2026 HE System. All rights reserved.<br>
-        123 Tech Lane, Silicon Valley, CA 94000
+      <p style="font-size: 11px; color: #aaa; text-align: center;">
+        Sent via HE System Security <br>
+        This is an automated message, please do not reply directly.
       </p>
     </div>
   `,
     };
 
     await sgMail.send(msg);
-    console.log(`✅ Email sent to ${email} via SendGrid`);
+    // console.log(`✅ Inbox-optimized email sent to ${email}`);
 
     return { status: "pending", message: "Verification Email Sent" };
 
   } catch (error) {
-    console.error("❌ SendGrid Error:", error.response ? error.response.body : error.message);
+    console.error("❌ SendGrid Error:", JSON.stringify(error.response?.body, null, 2));
     throw new Error("Could not send verification email.");
   }
 };
