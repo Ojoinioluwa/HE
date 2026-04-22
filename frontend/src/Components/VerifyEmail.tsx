@@ -81,7 +81,8 @@ function VerifyEmail() {
           </div>
           <h2 className="text-blue-950 text-3xl font-bold">Verify Account</h2>
           <p className="text-gray-500 mt-2 text-sm">
-            Enter the 6-digit code sent to your inbox.
+            Enter the 6-digit code sent to your inbox. Please Check your Spam
+            Folder
           </p>
         </div>
 
