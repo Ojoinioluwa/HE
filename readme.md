@@ -48,12 +48,12 @@ The backend handles authentication, data encryption, and database interactions.
     ```
 
 4.  **Start the server:** - **Development mode (with nodemon):**
-    `bash
+    `
 npm run server
 `- **Production mode:**
-    `bash
+    `
 npm run start
-`> The backend should now be running at`http://localhost:8888`.
+` The backend should now be running at`http://localhost:8888`.
 
 ---
 
