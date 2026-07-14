@@ -69,7 +69,25 @@ The frontend provides the user interface for registration, login, and data manag
     ```bash
     npm install
     ```
-3.  **Start the development server:**
+
+3.  ### ⚠️ CRITICAL: Configure the API Base URL for Localhost
+
+By default, the repository is configured to point to the production server. To run the application locally, you must update the API configuration file:
+
+1. Open the file located at: **`frontend\src\utils\url.ts`**
+2. Replace its contents with the following code (which comments out the production/environment variables and uncomments the localhost URL):
+
+```typescript
+// export const BASE_URL = import.meta.env.VITE_API_BASE_URL;
+
+// ! used for local host
+export const BASE_URL = 'http://localhost:8888/api/v1';
+
+// used for the production server
+// export const BASE_URL = 'https://he-400l.onrender.com/api/v1';
+
+```
+4.  **Start the development server:**
     ```bash
     npm run dev
     ```
