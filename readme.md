@@ -29,25 +29,10 @@ The backend handles authentication, data encryption, and database interactions.
     npm install
     ```
 3.  **Configure Environment Variables:**
-    Create a `.env` file in the root of the `server` folder:
+    Place the .env file provided to you directly into the root of the backend folder. This file contains the necessary environment     configurations (such as database URIs, API keys, and JWT secrets) required for the server to authenticate and run correctly.
 
-    ```env
-    PORT=######
-    MONGO_URI=######
-    JWT_SECRET=######
-    MONGODB_URI=######
-    AUTH_EMAIL=######
-    EMAIL_SERVICE=######
-    JWT_SECRET=######
-    NODE_ENV=######
-    RESEND_API_KEY=######
-    SENDGRID_API_KEY=######
-    CLOUDINARY_API_KEY=######
-    CLOUDINARY_API_SECRET=######
-    CLOUDINARY_CLOUD_NAME=######
-    ```
 
-4.  **Start the server:** - **Development mode (with nodemon):**
+5.  **Start the server:** - **Development mode (with nodemon):**
     `
 npm run server
 `- **Production mode:**
